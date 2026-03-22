@@ -1,3 +1,6 @@
 spring:
   application:
     name: next-please
+  jpa:
+    hibernate:
+      ddl-auto: validate
