@@ -1,11 +1,10 @@
-package com.uj.next_please
+package com.uj.nextplease
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 
-@SpringBootApplication
-class NextPleaseApplication
+@SpringBootApplication class NextPleaseApplication
 
 fun main(args: Array<String>) {
-	runApplication<NextPleaseApplication>(*args)
+    runApplication<NextPleaseApplication>(*args)
 }
