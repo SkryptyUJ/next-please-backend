@@ -4,3 +4,8 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+
+security:
+  secretKey: 123456
+  staffExpirationMs: 3600000
+  patientExpirationMs: 3600000
