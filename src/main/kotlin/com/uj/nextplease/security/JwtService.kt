@@ -1,6 +1,7 @@
 package com.uj.nextplease.security
 
 import com.uj.nextplease.user.model.UserDetails
+import com.uj.nextplease.user.model.UserRole
 import io.jsonwebtoken.Claims
 import io.jsonwebtoken.Jwts
 import io.jsonwebtoken.security.Keys
@@ -15,7 +16,6 @@ class JwtService(
     companion object {
         private const val ROLE_CLAIM = "role"
         private const val GUEST_TOKEN_PREFIX = "guest-"
-        private const val PATIENT_ROLE = "patient"
     }
 
     fun generateStaffToken(userDetails: UserDetails): String {
@@ -30,19 +30,38 @@ class JwtService(
             .compact()
     }
 
-    fun generatePatientToken(tiketId: String): String {
+    fun generatePatientToken(ticketId: String): String {
         val now = System.currentTimeMillis()
         return Jwts
             .builder()
-            .subject(GUEST_TOKEN_PREFIX + tiketId)
-            .claim(ROLE_CLAIM, PATIENT_ROLE)
+            .subject(GUEST_TOKEN_PREFIX + ticketId)
+            .claim(ROLE_CLAIM, UserRole.PATIENT.name)
             .issuedAt(Date(System.currentTimeMillis()))
             .expiration(Date(now + securityProperties.patientExpirationMs))
             .signWith(signKey(securityProperties.secretKey))
             .compact()
     }
 
-    fun getUsernameFromToken(token: String): String? = extractAllClaims(token).subject
+    fun isTokenValid(token: String): Boolean =
+        try {
+            val claims = extractAllClaims(token)
+            claims.expiration.after(Date())
+        } catch (e: Exception) {
+            false
+        }
+
+    fun getRoleFromToken(token: String): String? = extractAllClaims(token)[ROLE_CLAIM] as String?
+
+    fun getTicketIdFromToken(token: String): String? {
+        val subject = getTokenSubject(token)
+        return if (subject.startsWith(GUEST_TOKEN_PREFIX)) {
+            subject.removePrefix(GUEST_TOKEN_PREFIX)
+        } else {
+            null
+        }
+    }
+
+    private fun getTokenSubject(token: String): String = extractAllClaims(token).subject
 
     private fun extractAllClaims(token: String): Claims =
         Jwts

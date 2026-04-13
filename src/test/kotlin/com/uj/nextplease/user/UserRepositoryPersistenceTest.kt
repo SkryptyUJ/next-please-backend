@@ -1,6 +1,7 @@
 package com.uj.nextplease.user
 
 import com.uj.nextplease.config.PostgresTestContainerConfig
+import com.uj.nextplease.user.repository.UserRepository
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired

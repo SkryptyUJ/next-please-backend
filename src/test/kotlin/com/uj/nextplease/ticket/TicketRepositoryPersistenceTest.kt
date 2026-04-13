@@ -2,9 +2,10 @@ package com.uj.nextplease.ticket
 
 import com.uj.nextplease.config.PostgresTestContainerConfig
 import com.uj.nextplease.room.Room
-import com.uj.nextplease.room.RoomRepository
+import com.uj.nextplease.room.repository.RoomRepository
+import com.uj.nextplease.ticket.repository.TicketRepository
 import com.uj.nextplease.user.User
-import com.uj.nextplease.user.UserRepository
+import com.uj.nextplease.user.repository.UserRepository
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertNotNull
