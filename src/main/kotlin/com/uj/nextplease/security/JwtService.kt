@@ -46,11 +46,20 @@ class JwtService(
         try {
             val claims = extractAllClaims(token)
             claims.expiration.after(Date())
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             false
         }
 
     fun getRoleFromToken(token: String): String? = extractAllClaims(token)[ROLE_CLAIM] as String?
+
+    fun getEmailFromToken(token: String): String? {
+        val subject = getTokenSubject(token)
+        return if (!subject.startsWith(GUEST_TOKEN_PREFIX)) {
+            subject
+        } else {
+            null
+        }
+    }
 
     fun getTicketIdFromToken(token: String): String? {
         val subject = getTokenSubject(token)

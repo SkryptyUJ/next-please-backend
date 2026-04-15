@@ -6,6 +6,6 @@ spring:
       ddl-auto: validate
 
 security:
-  secretKey: 123456
+  secretKey: AmhJBaVu/Es35JAc9eSS5RIELpQ6dDv1FyAkNDs3ReM=
   staffExpirationMs: 3600000
   patientExpirationMs: 3600000
