@@ -24,7 +24,7 @@ class JwtService(
             .builder()
             .subject(userDetails.email)
             .claim(ROLE_CLAIM, userDetails.role)
-            .issuedAt(Date(System.currentTimeMillis()))
+            .issuedAt(Date(now))
             .expiration(Date(now + securityProperties.staffExpirationMs))
             .signWith(signKey(securityProperties.secretKey))
             .compact()
@@ -36,7 +36,7 @@ class JwtService(
             .builder()
             .subject(GUEST_TOKEN_PREFIX + ticketId)
             .claim(ROLE_CLAIM, UserRole.PATIENT.name)
-            .issuedAt(Date(System.currentTimeMillis()))
+            .issuedAt(Date(now))
             .expiration(Date(now + securityProperties.patientExpirationMs))
             .signWith(signKey(securityProperties.secretKey))
             .compact()
@@ -54,20 +54,14 @@ class JwtService(
 
     fun getEmailFromToken(token: String): String? {
         val subject = getTokenSubject(token)
-        return if (!subject.startsWith(GUEST_TOKEN_PREFIX)) {
-            subject
-        } else {
-            null
-        }
+        return subject.takeUnless { it.startsWith(GUEST_TOKEN_PREFIX) }
     }
 
     fun getTicketIdFromToken(token: String): String? {
         val subject = getTokenSubject(token)
-        return if (subject.startsWith(GUEST_TOKEN_PREFIX)) {
-            subject.removePrefix(GUEST_TOKEN_PREFIX)
-        } else {
-            null
-        }
+        return subject
+            .takeIf { it.startsWith(GUEST_TOKEN_PREFIX) }
+            ?.removePrefix(GUEST_TOKEN_PREFIX)
     }
 
     private fun getTokenSubject(token: String): String = extractAllClaims(token).subject

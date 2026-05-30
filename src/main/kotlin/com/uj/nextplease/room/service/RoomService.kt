@@ -5,7 +5,6 @@ import com.uj.nextplease.room.model.DoctorAssignmentRequest
 import com.uj.nextplease.room.model.RoomResponse
 import com.uj.nextplease.room.model.RoomUpdateRequest
 import com.uj.nextplease.room.repository.RoomRepository
-import com.uj.nextplease.ticket.model.TicketStatus
 import com.uj.nextplease.ticket.repository.TicketRepository
 import com.uj.nextplease.user.repository.UserRepository
 import org.springframework.stereotype.Service
@@ -16,20 +15,11 @@ class RoomService(
     private val ticketRepository: TicketRepository,
     private val userRepository: UserRepository,
 ) {
-    fun getAllRooms(): List<RoomResponse> {
-        val rooms = roomRepository.findAllByOrderByNameAsc()
-        return rooms.map { toRoomResponse(it) }
-    }
+    fun getAllRooms(): List<RoomResponse> = roomRepository.findAllByOrderByNameAsc().map(::toRoomResponse)
 
-    fun getActiveRooms(): List<RoomResponse> {
-        val rooms = roomRepository.findAllActive()
-        return rooms.map { toRoomResponse(it) }
-    }
+    fun getActiveRooms(): List<RoomResponse> = roomRepository.findAllActive().map(::toRoomResponse)
 
-    fun getRoomById(roomId: Long): RoomResponse? {
-        val room = roomRepository.findById(roomId).orElse(null) ?: return null
-        return toRoomResponse(room)
-    }
+    fun getRoomById(roomId: Long): RoomResponse? = roomRepository.findById(roomId).orElse(null)?.let(::toRoomResponse)
 
     fun updateRoom(
         roomId: Long,
@@ -37,17 +27,15 @@ class RoomService(
     ): RoomResponse? {
         val room = roomRepository.findById(roomId).orElse(null) ?: return null
 
-        if (request.name != null) {
-            val existingRoom = roomRepository.findByName(request.name)
+        request.name?.let { name ->
+            val existingRoom = roomRepository.findByName(name)
             if (existingRoom != null && existingRoom.id != roomId) {
                 throw IllegalArgumentException("Room name already exists")
             }
-            room.name = request.name
+            room.name = name
         }
 
-        if (request.isActive != null) {
-            room.isActive = request.isActive
-        }
+        request.isActive?.let { room.isActive = it }
 
         val updated = roomRepository.save(room)
         return toRoomResponse(updated)
@@ -59,20 +47,18 @@ class RoomService(
     ): RoomResponse? {
         val room = roomRepository.findById(roomId).orElse(null) ?: return null
 
-        if (request.doctorId != null) {
-            val doctor =
-                userRepository.findById(request.doctorId).orElse(null)
-                    ?: throw IllegalArgumentException("Doctor not found")
+        request.doctorId?.let { doctorId ->
+            userRepository.findById(doctorId).orElse(null)
+                ?: throw IllegalArgumentException("Doctor not found")
 
-            val existingAssignment = roomRepository.findByDoctorId(request.doctorId)
+            val existingAssignment = roomRepository.findByDoctorId(doctorId)
             if (existingAssignment != null && existingAssignment.id != roomId) {
                 throw IllegalArgumentException("Doctor is already assigned to another room")
             }
         }
 
-        if (room.doctorId != null && request.doctorId != room.doctorId) {
-            val currentDoctorRoom = roomRepository.findByDoctorId(room.doctorId!!)
-            if (currentDoctorRoom != null) {
+        room.doctorId?.takeIf { it != request.doctorId }?.let { currentDoctorId ->
+            roomRepository.findByDoctorId(currentDoctorId)?.let { currentDoctorRoom ->
                 currentDoctorRoom.doctorId = null
                 roomRepository.save(currentDoctorRoom)
             }
@@ -100,7 +86,7 @@ class RoomService(
     }
 
     fun deleteRoom(roomId: Long): Boolean {
-        val room = roomRepository.findById(roomId).orElse(null) ?: return false
+        roomRepository.findById(roomId).orElse(null) ?: return false
         roomRepository.deleteById(roomId)
         return true
     }

@@ -32,10 +32,7 @@ class RoomController(
     private val userRepository: UserRepository,
 ) {
     @GetMapping("/rooms")
-    fun getAllRooms(): ResponseEntity<List<RoomResponse>> {
-        val rooms = roomService.getAllRooms()
-        return ResponseEntity.ok(rooms)
-    }
+    fun getAllRooms(): ResponseEntity<List<RoomResponse>> = ResponseEntity.ok(roomService.getAllRooms())
 
     @PutMapping("/rooms/{roomId}")
     fun updateRoom(
@@ -47,7 +44,7 @@ class RoomController(
                 roomService.updateRoom(roomId, request)
                     ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
             ResponseEntity.ok(updated)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             ResponseEntity.status(HttpStatus.BAD_REQUEST).build()
         }
     }
@@ -62,8 +59,8 @@ class RoomController(
                 roomService.assignDoctorToRoom(roomId, request)
                     ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
             ResponseEntity.ok(updated)
-        } catch (e: Exception) {
-            ResponseEntity.status(HttpStatus.BAD_REQUEST).body(null)
+        } catch (_: Exception) {
+            ResponseEntity.status(HttpStatus.BAD_REQUEST).build()
         }
     }
 
@@ -130,7 +127,7 @@ class RoomController(
                 ticketService.findByTicketName(ticketResponse.ticketNumber)
                     ?: return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build()
             ResponseEntity.ok(ticket)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             ResponseEntity.status(HttpStatus.BAD_REQUEST).build()
         }
     }
@@ -146,16 +143,7 @@ class RoomController(
     }
 
     private fun getAuthenticatedDoctorRoom(): Room? {
-        val doctorEmail =
-            SecurityContextHolder.getContext().authentication?.principal as? String
-                ?: return null
-        val doctor =
-            userRepository.findByEmail(doctorEmail)
-                ?: return null
-        val doctorId =
-            doctor.id
-                ?: return null
-
-        return roomRepository.findByDoctorId(doctorId)
+        val doctorEmail = SecurityContextHolder.getContext().authentication?.principal as? String ?: return null
+        return userRepository.findByEmail(doctorEmail)?.id?.let(roomRepository::findByDoctorId)
     }
 }

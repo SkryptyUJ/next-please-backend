@@ -26,10 +26,7 @@ class TicketService(
         private val TICKET_RANDOM_MAX = Constants.DEFAULT_TICKET_RANDOM_MAX
     }
 
-    fun findByTicketName(ticketName: String): TicketDetails? {
-        val ticket = ticketRepository.findByTicketName(ticketName)
-        return toTicketDetails(ticket ?: return null)
-    }
+    fun findByTicketName(ticketName: String): TicketDetails? = ticketRepository.findByTicketName(ticketName)?.let(::toTicketDetails)
 
     fun createTicket(request: TicketCreateRequest): TicketCreateResponse {
         val room =
@@ -66,20 +63,17 @@ class TicketService(
         val ticket = ticketRepository.findByTicketName(ticketName) ?: return null
         val ticketDetails = toTicketDetails(ticket)
 
-        val queueSize =
-            if (ticket.roomId != null) {
-                ticketRepository.countWaitingByRoomId(ticket.roomId!!)
-            } else {
-                0
-            }
+        val queueSize = ticket.roomId?.let(ticketRepository::countWaitingByRoomId) ?: 0
 
         val position =
-            if (ticket.roomId != null && ticket.status == TicketStatus.WAITING) {
-                val waitingTickets = ticketRepository.findWaitingByRoomIdOrderedByCreatedAt(ticket.roomId!!)
-                waitingTickets.indexOfFirst { it.id == ticket.id } + 1
-            } else {
-                0
-            }
+            ticket.roomId
+                ?.takeIf { ticket.status == TicketStatus.WAITING }
+                ?.let { roomId ->
+                    ticketRepository
+                        .findWaitingByRoomIdOrderedByCreatedAt(roomId)
+                        .indexOfFirst { it.id == ticket.id } + 1
+                }
+                ?: 0
 
         return QueueStatusResponse(
             ticketNumber = ticketDetails.ticketName,
@@ -94,14 +88,11 @@ class TicketService(
     fun getNextPatientByType(
         roomId: Long,
         type: TicketType,
-    ): TicketDetails? {
-        val tickets = ticketRepository.findWaitingByRoomIdAndTypeOrderedByCreatedAt(roomId, type)
-        return if (tickets.isNotEmpty()) {
-            toTicketDetails(tickets.first())
-        } else {
-            null
-        }
-    }
+    ): TicketDetails? =
+        ticketRepository
+            .findWaitingByRoomIdAndTypeOrderedByCreatedAt(roomId, type)
+            .firstOrNull()
+            ?.let(::toTicketDetails)
 
     fun callPatient(
         ticketId: Long,
@@ -121,10 +112,10 @@ class TicketService(
 
         val updated = ticketRepository.save(ticket)
 
-        val room = roomRepository.findById(roomId).orElse(null)
-        if (room != null) {
-            queueService.broadcastPatientCalled(roomId, ticket.ticketName!!, room.name)
-        }
+        roomRepository
+            .findById(roomId)
+            .orElse(null)
+            ?.let { room -> queueService.broadcastPatientCalled(roomId, ticket.ticketName!!, room.name) }
 
         broadcastQueueUpdateForRoom(roomId)
 
@@ -154,7 +145,6 @@ class TicketService(
         ticket.status = TicketStatus.CANCELLED
         val updated = ticketRepository.save(ticket)
 
-        // Broadcast queue update to all remaining waiting tickets
         ticket.roomId?.let { broadcastQueueUpdateForRoom(it) }
 
         return toTicketDetails(updated)
