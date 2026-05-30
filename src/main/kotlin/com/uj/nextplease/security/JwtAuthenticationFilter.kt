@@ -26,15 +26,15 @@ class JwtAuthenticationFilter(
         response: HttpServletResponse,
         filterChain: FilterChain,
     ) {
-        val authHeader = request.getHeader("Authorization")
-        if (authHeader == null || !authHeader.startsWith(BEARER_PREFIX)) {
-            return filterChain.doFilter(request, response)
-        }
+        val jwt =
+            request
+                .getHeader("Authorization")
+                ?.takeIf { it.startsWith(BEARER_PREFIX) }
+                ?.substringAfter(BEARER_PREFIX)
+                ?: return filterChain.doFilter(request, response)
 
-        val jwt = authHeader.substringAfter(BEARER_PREFIX)
         if (jwtService.isTokenValid(jwt)) {
-            val tokenRole = jwtService.getRoleFromToken(jwt) ?: return filterChain.doFilter(request, response)
-            addSecurityContext(tokenRole, jwt)
+            jwtService.getRoleFromToken(jwt)?.let { tokenRole -> addSecurityContext(tokenRole, jwt) }
         }
 
         filterChain.doFilter(request, response)
@@ -44,23 +44,22 @@ class JwtAuthenticationFilter(
         tokenRole: String,
         jwt: String,
     ) {
-        val userRole = UserRole.valueOf(tokenRole)
-        when (tokenRole) {
-            UserRole.PATIENT.name -> handlePatientToken(jwt)
-            else -> handleRoleToken(userRole, jwt)
+        when (UserRole.valueOf(tokenRole)) {
+            UserRole.PATIENT -> handlePatientToken(jwt)
+            else -> handleRoleToken(tokenRole, jwt)
         }
     }
 
     private fun handleRoleToken(
-        userRole: UserRole,
+        tokenRole: String,
         jwt: String,
     ) {
+        val userRole = UserRole.valueOf(tokenRole)
         val userEmail = jwtService.getEmailFromToken(jwt) ?: return
         val userDetails = userService.findByEmail(userEmail) ?: return
 
         val authorities = listOf(SimpleGrantedAuthority(ROLE_PREFIX + userRole.name))
-        val authenticationToken =
-            UsernamePasswordAuthenticationToken(userEmail, userDetails.password, authorities)
+        val authenticationToken = UsernamePasswordAuthenticationToken(userEmail, userDetails.password, authorities)
 
         SecurityContextHolder.getContext().authentication = authenticationToken
     }
@@ -69,8 +68,7 @@ class JwtAuthenticationFilter(
         val ticketId = jwtService.getTicketIdFromToken(jwt) ?: return
 
         val authorities = listOf(SimpleGrantedAuthority(ROLE_PREFIX + UserRole.PATIENT.name))
-        val authenticationToken =
-            UsernamePasswordAuthenticationToken(ticketId, null, authorities)
+        val authenticationToken = UsernamePasswordAuthenticationToken(ticketId, null, authorities)
 
         SecurityContextHolder.getContext().authentication = authenticationToken
     }

@@ -28,23 +28,15 @@ class QueueService {
         roomId: Long,
         status: QueueStatusResponse,
     ) {
-        val roomEmitters = emitters[roomId] ?: return
-
-        val iterator = roomEmitters.iterator()
-        while (iterator.hasNext()) {
-            val emitter = iterator.next()
-            try {
-                emitter.send(
-                    SseEmitter
-                        .event()
-                        .id(status.ticketNumber)
-                        .name(Constants.SSE_EVENT_QUEUE_UPDATE)
-                        .data(status)
-                        .build(),
-                )
-            } catch (e: IOException) {
-                iterator.remove()
-            }
+        broadcast(roomId) { emitter ->
+            emitter.send(
+                SseEmitter
+                    .event()
+                    .id(status.ticketNumber)
+                    .name(Constants.SSE_EVENT_QUEUE_UPDATE)
+                    .data(status)
+                    .build(),
+            )
         }
     }
 
@@ -53,24 +45,33 @@ class QueueService {
         ticketNumber: String,
         roomNumber: String,
     ) {
+        broadcast(roomId) { emitter ->
+            emitter.send(
+                SseEmitter
+                    .event()
+                    .id(ticketNumber)
+                    .name(Constants.SSE_EVENT_PATIENT_CALLED)
+                    .data(
+                        mapOf(
+                            Constants.SSE_DATA_TICKET_NUMBER to ticketNumber,
+                            Constants.SSE_DATA_ROOM_NUMBER to roomNumber,
+                        ),
+                    ).build(),
+            )
+        }
+    }
+
+    private fun broadcast(
+        roomId: Long,
+        sendEvent: (SseEmitter) -> Unit,
+    ) {
         val roomEmitters = emitters[roomId] ?: return
 
         val iterator = roomEmitters.iterator()
         while (iterator.hasNext()) {
             val emitter = iterator.next()
             try {
-                emitter.send(
-                    SseEmitter
-                        .event()
-                        .id(ticketNumber)
-                        .name(Constants.SSE_EVENT_PATIENT_CALLED)
-                        .data(
-                            mapOf(
-                                Constants.SSE_DATA_TICKET_NUMBER to ticketNumber,
-                                Constants.SSE_DATA_ROOM_NUMBER to roomNumber,
-                            ),
-                        ).build(),
-                )
+                sendEvent(emitter)
             } catch (_: IOException) {
                 iterator.remove()
             }

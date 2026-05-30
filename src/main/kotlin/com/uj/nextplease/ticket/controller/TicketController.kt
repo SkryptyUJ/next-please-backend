@@ -29,15 +29,14 @@ class TicketController(
             val ticketResponse = ticketService.createTicket(request)
             val token = jwtService.generatePatientToken(ticketResponse.ticketNumber)
 
-            val response =
+            ResponseEntity.ok(
                 TicketCreateResponse(
                     ticketNumber = ticketResponse.ticketNumber,
                     token = token,
                     roomId = ticketResponse.roomId,
-                )
-
-            ResponseEntity.ok(response)
-        } catch (e: Exception) {
+                ),
+            )
+        } catch (_: Exception) {
             ResponseEntity.status(HttpStatus.BAD_REQUEST).build()
         }
 
