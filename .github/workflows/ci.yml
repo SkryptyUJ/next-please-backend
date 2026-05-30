@@ -36,18 +36,3 @@ jobs:
       - name: Build (assemble + tests)
         run: ./gradlew --no-daemon build
 
-      - name: Publish JUnit test results to Checks
-        if: always()
-        uses: dorny/test-reporter@v1
-        with:
-          name: Unit tests
-          path: build/test-results/test
-          reporter: junit
-
-      - name: Upload HTML test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-report-html
-          path: build/reports/tests/test
-
