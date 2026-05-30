@@ -1,5 +1,6 @@
 package com.uj.nextplease.user.controller
 
+import com.uj.nextplease.security.CorsProperties
 import com.uj.nextplease.security.JwtService
 import com.uj.nextplease.security.SecurityProperties
 import com.uj.nextplease.ticket.service.TicketService
@@ -20,6 +21,15 @@ class AuthControllerTest {
     private lateinit var authController: AuthController
     private lateinit var securityProperties: SecurityProperties
 
+    private val corsProperties =
+        CorsProperties(
+            allowedOrigins = listOf("http://localhost:3000"),
+            allowedMethods = listOf("GET"),
+            allowedHeaders = listOf("*"),
+            allowCredentials = true,
+            maxAge = 3600L,
+        )
+
     @BeforeEach
     fun setUp() {
         userService = mock()
@@ -29,6 +39,7 @@ class AuthControllerTest {
                 secretKey = "my-secret-key-that-is-at-least-32-characters-long-for-hmac-sha",
                 staffExpirationMs = 3600000,
                 patientExpirationMs = 1800000,
+                cors = corsProperties,
             )
         jwtService = JwtService(securityProperties)
         authController = AuthController(userService, ticketService, jwtService)

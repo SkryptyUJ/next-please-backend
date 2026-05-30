@@ -10,6 +10,15 @@ class JwtServiceTest {
     private lateinit var jwtService: JwtService
     private lateinit var securityProperties: SecurityProperties
 
+    private val corsProperties =
+        CorsProperties(
+            allowedOrigins = listOf("http://localhost:3000"),
+            allowedMethods = listOf("GET"),
+            allowedHeaders = listOf("*"),
+            allowCredentials = true,
+            maxAge = 3600L,
+        )
+
     @BeforeEach
     fun setUp() {
         securityProperties =
@@ -17,6 +26,7 @@ class JwtServiceTest {
                 secretKey = "my-secret-key-that-is-at-least-32-characters-long-for-hmac-sha",
                 staffExpirationMs = 3600000,
                 patientExpirationMs = 1800000,
+                cors = corsProperties,
             )
         jwtService = JwtService(securityProperties)
     }
