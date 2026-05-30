@@ -7,3 +7,31 @@ services:
       - 'POSTGRES_USER=myuser'
     ports:
       - '5432'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - next-please-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '8080:8080'
+    environment:
+      - 'SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/mydatabase'
+      - 'SPRING_DATASOURCE_USERNAME=myuser'
+      - 'SPRING_DATASOURCE_PASSWORD=secret'
+      - 'SPRING_JPA_HIBERNATE_DDL_AUTO=validate'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - next-please-network
+
+networks:
+  next-please-network:
+    driver: bridge
