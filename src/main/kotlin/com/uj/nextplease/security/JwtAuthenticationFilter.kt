@@ -27,7 +27,7 @@ class JwtAuthenticationFilter(
         filterChain: FilterChain,
     ) {
         val authHeader = request.getHeader("Authorization")
-        if (authHeader?.startsWith(BEARER_PREFIX) == false) {
+        if (authHeader == null || !authHeader.startsWith(BEARER_PREFIX)) {
             return filterChain.doFilter(request, response)
         }
 
