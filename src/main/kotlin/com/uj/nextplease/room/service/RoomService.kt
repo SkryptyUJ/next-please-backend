@@ -85,12 +85,6 @@ class RoomService(
         return toRoomResponse(saved)
     }
 
-    fun deleteRoom(roomId: Long): Boolean {
-        roomRepository.findById(roomId).orElse(null) ?: return false
-        roomRepository.deleteById(roomId)
-        return true
-    }
-
     private fun toRoomResponse(room: Room): RoomResponse {
         val waitingCount = ticketRepository.countWaitingByRoomId(room.id!!)
         val doctor = room.doctorId?.let { userRepository.findById(it).orElse(null) }
