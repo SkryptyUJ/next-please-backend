@@ -4,8 +4,30 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+  web:
+    cors:
+      allowed-origins: "http://localhost:3000,http://localhost:3001"
+      allowed-methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS"
+      allowed-headers: "*"
+      allow-credentials: true
+      max-age: 3600
 
 security:
   secretKey: AmhJBaVu/Es35JAc9eSS5RIELpQ6dDv1FyAkNDs3ReM=
   staffExpirationMs: 3600000
-  patientExpirationMs: 3600000
+  patientExpirationMs: 10800000
+  cors:
+    allowed-origins:
+      - http://localhost:3000
+      - http://localhost:3001
+    allowed-methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - PATCH
+      - OPTIONS
+    allowed-headers:
+      - "*"
+    allow-credentials: true
+    max-age: 3600

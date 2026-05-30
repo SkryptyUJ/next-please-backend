@@ -1,7 +1,11 @@
 package com.uj.nextplease.ticket
 
+import com.uj.nextplease.ticket.model.TicketStatus
+import com.uj.nextplease.ticket.model.TicketType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
@@ -17,7 +21,8 @@ class Ticket(
     @Column(name = "ticket_number", nullable = false, unique = true, length = 50)
     var ticketName: String? = null,
     @Column(nullable = false, length = 50)
-    var status: String? = null,
+    @Enumerated(EnumType.STRING)
+    var status: TicketStatus? = null,
     @Column(nullable = false)
     var createdAt: Date? = null,
     @Column
@@ -26,4 +31,7 @@ class Ticket(
     var roomId: Long? = null,
     @Column(name = "doctor_id")
     var doctorId: Long? = null,
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    var type: TicketType = TicketType.CONSULTATION,
 )
