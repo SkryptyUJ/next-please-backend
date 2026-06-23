@@ -162,6 +162,8 @@ class TicketServiceIntegrationTest(
 
     @Test
     fun `given a called ticket when completeTicket by the session doctor then it becomes completed`() {
+        val doctor = userRepository.save(doctor("complete-doctor@clinic.com"))
+        val room = roomRepository.save(Room(name = "Room A", isActive = true, doctorId = doctor.id))
         val ticket =
             ticketRepository.save(
                 Ticket(
@@ -169,13 +171,13 @@ class TicketServiceIntegrationTest(
                     status = TicketStatus.CALLED,
                     createdAt = Date(),
                     calledAt = Date(),
-                    roomId = 1L,
-                    doctorId = 7L,
+                    roomId = room.id,
+                    doctorId = doctor.id,
                     type = TicketType.URGENT,
                 ),
             )
 
-        val completed = ticketService.completeTicket(ticket.id!!, 7L)
+        val completed = ticketService.completeTicket(ticket.id!!, doctor.id!!)
 
         assertThat(completed?.status).isEqualTo(TicketStatus.COMPLETED)
         val reloaded = ticketRepository.findById(ticket.id!!).orElseThrow()
@@ -184,6 +186,8 @@ class TicketServiceIntegrationTest(
 
     @Test
     fun `given a called ticket when completeTicket by another doctor then it throws AccessDeniedException`() {
+        val doctor = userRepository.save(doctor("complete-doctor2@clinic.com"))
+        val room = roomRepository.save(Room(name = "Room A", isActive = true, doctorId = doctor.id))
         val ticket =
             ticketRepository.save(
                 Ticket(
@@ -191,13 +195,13 @@ class TicketServiceIntegrationTest(
                     status = TicketStatus.CALLED,
                     createdAt = Date(),
                     calledAt = Date(),
-                    roomId = 1L,
-                    doctorId = 7L,
+                    roomId = room.id,
+                    doctorId = doctor.id,
                     type = TicketType.URGENT,
                 ),
             )
 
-        assertThatThrownBy { ticketService.completeTicket(ticket.id!!, 99L) }
+        assertThatThrownBy { ticketService.completeTicket(ticket.id!!, doctor.id!! + 1) }
             .isInstanceOf(AccessDeniedException::class.java)
 
         val reloaded = ticketRepository.findById(ticket.id!!).orElseThrow()
@@ -206,6 +210,7 @@ class TicketServiceIntegrationTest(
 
     @Test
     fun `given a non-called ticket when completeTicket then it throws IllegalStateException`() {
+        val doctor = userRepository.save(doctor("complete-doctor3@clinic.com"))
         val ticket =
             ticketRepository.save(
                 Ticket(
@@ -213,12 +218,12 @@ class TicketServiceIntegrationTest(
                     status = TicketStatus.WAITING,
                     createdAt = Date(),
                     roomId = null,
-                    doctorId = 7L,
+                    doctorId = doctor.id,
                     type = TicketType.URGENT,
                 ),
             )
 
-        assertThatThrownBy { ticketService.completeTicket(ticket.id!!, 7L) }
+        assertThatThrownBy { ticketService.completeTicket(ticket.id!!, doctor.id!!) }
             .isInstanceOf(IllegalStateException::class.java)
     }
 
