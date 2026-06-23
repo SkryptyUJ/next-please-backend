@@ -9,17 +9,22 @@ import com.uj.nextplease.ticket.model.TicketCreateRequest
 import com.uj.nextplease.ticket.model.TicketStatus
 import com.uj.nextplease.ticket.model.TicketType
 import com.uj.nextplease.ticket.repository.TicketRepository
+import com.uj.nextplease.user.User
 import com.uj.nextplease.user.repository.UserRepository
+import com.uj.nextplease.util.Constants
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.mockito.kotlin.eq
-import org.mockito.kotlin.verify
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import java.util.Date
+import java.util.concurrent.Callable
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 
 @SpringBootTest
 @Import(PostgresTestContainerConfig::class)
@@ -40,176 +45,212 @@ class TicketServiceIntegrationTest(
     }
 
     @Test
-    fun `createTicket persists a waiting ticket with the requested type and room`() {
-        val room = roomRepository.save(Room(name = "Room A", isActive = true))
-
-        val response =
-            ticketService.createTicket(
-                TicketCreateRequest(
-                    type = TicketType.CONSULTATION,
-                    roomId = room.id!!,
-                ),
-            )
+    fun `given a type when createTicket then it persists a waiting ticket with no room or doctor`() {
+        val response = ticketService.createTicket(TicketCreateRequest(type = TicketType.CONSULTATION))
 
         val saved = ticketRepository.findByTicketName(response.ticketNumber)
 
-        assertThat(response.ticketNumber).startsWith("R-")
         assertThat(saved).isNotNull()
         assertThat(saved?.status).isEqualTo(TicketStatus.WAITING)
         assertThat(saved?.type).isEqualTo(TicketType.CONSULTATION)
-        assertThat(saved?.roomId).isEqualTo(room.id)
+        assertThat(saved?.roomId).isNull()
+        assertThat(saved?.doctorId).isNull()
     }
 
     @Test
-    fun `getQueueStatus returns queue position and size`() {
-        val room = roomRepository.save(Room(name = "Room B", isActive = true))
+    fun `given each type when createTicket then ticket number uses the type prefix`() {
+        val consultation = ticketService.createTicket(TicketCreateRequest(type = TicketType.CONSULTATION))
+        val checkup = ticketService.createTicket(TicketCreateRequest(type = TicketType.CHECKUP))
+        val urgent = ticketService.createTicket(TicketCreateRequest(type = TicketType.URGENT))
 
-        val first =
+        assertThat(consultation.ticketNumber).matches("C-\\d{3}")
+        assertThat(checkup.ticketNumber).matches("K-\\d{3}")
+        assertThat(urgent.ticketNumber).matches("U-\\d{3}")
+    }
+
+    @Test
+    fun `given waiting tickets of several types when getQueueStatus then position and size are computed per type`() {
+        val firstConsultation =
             ticketRepository.save(
-                Ticket(
-                    ticketName = "B-001",
-                    status = TicketStatus.WAITING,
-                    createdAt = Date(System.currentTimeMillis() - 1000),
-                    roomId = room.id,
-                    type = TicketType.CONSULTATION,
-                ),
+                waitingTicket("C-001", TicketType.CONSULTATION, System.currentTimeMillis() - 3000),
             )
         ticketRepository.save(
-            Ticket(
-                ticketName = "B-002",
-                status = TicketStatus.WAITING,
-                createdAt = Date(),
-                roomId = room.id,
-                type = TicketType.CHECKUP,
-            ),
+            waitingTicket("C-002", TicketType.CONSULTATION, System.currentTimeMillis() - 2000),
+        )
+        ticketRepository.save(
+            waitingTicket("K-001", TicketType.CHECKUP, System.currentTimeMillis() - 1000),
         )
 
-        val status = ticketService.getQueueStatus(first.ticketName!!)
+        val status = ticketService.getQueueStatus(firstConsultation.ticketName!!)
 
         assertThat(status).isNotNull()
         assertThat(status?.positionInQueue).isEqualTo(1)
         assertThat(status?.queueSize).isEqualTo(2)
         assertThat(status?.type).isEqualTo(TicketType.CONSULTATION)
-        assertThat(status?.roomId).isEqualTo(room.id)
     }
 
     @Test
-    fun `getNextPatientByType returns the oldest ticket of the requested type`() {
-        val room = roomRepository.save(Room(name = "Room C", isActive = true))
+    fun `given waiting tickets when getAvailableTypes then it returns distinct types globally`() {
+        ticketRepository.save(waitingTicket("C-001", TicketType.CONSULTATION, System.currentTimeMillis() - 3000))
+        ticketRepository.save(waitingTicket("C-002", TicketType.CONSULTATION, System.currentTimeMillis() - 2000))
+        ticketRepository.save(waitingTicket("K-001", TicketType.CHECKUP, System.currentTimeMillis() - 1000))
 
-        val olderConsultation =
-            ticketRepository.save(
-                Ticket(
-                    ticketName = "C-001",
-                    status = TicketStatus.WAITING,
-                    createdAt = Date(System.currentTimeMillis() - 2000),
-                    roomId = room.id,
-                    type = TicketType.CONSULTATION,
-                ),
+        val types = ticketService.getAvailableTypes()
+
+        assertThat(types).containsExactly(TicketType.CONSULTATION, TicketType.CHECKUP)
+    }
+
+    @Test
+    fun `given a waiting patient when pairNextPatient then the oldest is called and assigned a room and doctor`() {
+        val doctor = userRepository.save(doctor("pair-doctor@clinic.com"))
+        val room = roomRepository.save(Room(name = "Room A", isActive = true, doctorId = doctor.id))
+
+        val oldest = ticketRepository.save(waitingTicket("C-001", TicketType.CONSULTATION, System.currentTimeMillis() - 2000))
+        ticketRepository.save(waitingTicket("C-002", TicketType.CONSULTATION, System.currentTimeMillis() - 1000))
+
+        val visit = ticketService.pairNextPatient(TicketType.CONSULTATION, room.id!!, room.name, doctor.id!!)
+
+        assertThat(visit).isNotNull()
+        assertThat(visit?.ticket?.ticketName).isEqualTo(oldest.ticketName)
+        assertThat(visit?.visitEndsAt).isNotBlank()
+
+        val reloaded = ticketRepository.findById(oldest.id!!).orElseThrow()
+        assertThat(reloaded.status).isEqualTo(TicketStatus.CALLED)
+        assertThat(reloaded.calledAt).isNotNull()
+        assertThat(reloaded.roomId).isEqualTo(room.id)
+        assertThat(reloaded.doctorId).isEqualTo(doctor.id)
+    }
+
+    @Test
+    fun `given no waiting patient of the type when pairNextPatient then it returns null`() {
+        val doctor = userRepository.save(doctor("empty-doctor@clinic.com"))
+        val room = roomRepository.save(Room(name = "Room A", isActive = true, doctorId = doctor.id))
+        ticketRepository.save(waitingTicket("K-001", TicketType.CHECKUP, System.currentTimeMillis()))
+
+        val visit = ticketService.pairNextPatient(TicketType.URGENT, room.id!!, room.name, doctor.id!!)
+
+        assertThat(visit).isNull()
+    }
+
+    @Test
+    fun `given two doctors pairing the same single patient concurrently when pairNextPatient then only one wins`() {
+        val doctorOne = userRepository.save(doctor("race-one@clinic.com"))
+        val doctorTwo = userRepository.save(doctor("race-two@clinic.com"))
+        val roomOne = roomRepository.save(Room(name = "Room A", isActive = true, doctorId = doctorOne.id))
+        val roomTwo = roomRepository.save(Room(name = "Room B", isActive = true, doctorId = doctorTwo.id))
+        ticketRepository.save(waitingTicket("U-001", TicketType.URGENT, System.currentTimeMillis()))
+
+        val barrier = CyclicBarrier(2)
+        val executor = Executors.newFixedThreadPool(2)
+        val task = { room: Room, doctorId: Long ->
+            Callable {
+                barrier.await()
+                ticketService.pairNextPatient(TicketType.URGENT, room.id!!, room.name, doctorId)
+            }
+        }
+
+        val results: List<Future<*>> =
+            listOf(
+                executor.submit(task(roomOne, doctorOne.id!!)),
+                executor.submit(task(roomTwo, doctorTwo.id!!)),
             )
-        ticketRepository.save(
-            Ticket(
-                ticketName = "C-002",
-                status = TicketStatus.WAITING,
-                createdAt = Date(System.currentTimeMillis() - 1000),
-                roomId = room.id,
-                type = TicketType.CONSULTATION,
-            ),
-        )
-        ticketRepository.save(
-            Ticket(
-                ticketName = "C-003",
-                status = TicketStatus.WAITING,
-                createdAt = Date(),
-                roomId = room.id,
-                type = TicketType.URGENT,
-            ),
-        )
+        val visits = results.map { it.get() }
+        executor.shutdown()
 
-        val next = ticketService.getNextPatientByType(room.id!!, TicketType.CONSULTATION)
-
-        assertThat(next).isNotNull()
-        assertThat(next?.ticketName).isEqualTo(olderConsultation.ticketName)
-        assertThat(next?.type).isEqualTo(TicketType.CONSULTATION)
+        assertThat(visits.count { it != null }).isEqualTo(1)
+        assertThat(ticketRepository.findByStatus(TicketStatus.CALLED)).hasSize(1)
     }
 
     @Test
-    fun `callPatient marks ticket as called and notifies queue`() {
-        val room = roomRepository.save(Room(name = "Room D", isActive = true))
+    fun `given a called ticket past its visit duration when completeExpiredVisits then it is completed`() {
+        val expiredCalledAt = System.currentTimeMillis() - (Constants.VISIT_DURATION_SECONDS + 1) * 1000L
         val ticket =
             ticketRepository.save(
                 Ticket(
-                    ticketName = "D-001",
-                    status = TicketStatus.WAITING,
-                    createdAt = Date(),
-                    roomId = room.id,
+                    ticketName = "U-001",
+                    status = TicketStatus.CALLED,
+                    createdAt = Date(expiredCalledAt),
+                    calledAt = Date(expiredCalledAt),
+                    roomId = null,
+                    doctorId = null,
                     type = TicketType.URGENT,
                 ),
             )
 
-        val called = ticketService.callPatient(ticket.id!!, room.id!!)
-        val reloaded = ticketRepository.findById(ticket.id!!).orElseThrow()
+        ticketService.completeExpiredVisits()
 
-        assertThat(called).isNotNull()
-        assertThat(reloaded.status).isEqualTo(TicketStatus.CALLED)
-        assertThat(reloaded.calledAt).isNotNull()
-        verify(queueService).broadcastPatientCalled(eq(room.id!!), eq(ticket.ticketName!!), eq(room.name))
+        val reloaded = ticketRepository.findById(ticket.id!!).orElseThrow()
+        assertThat(reloaded.status).isEqualTo(TicketStatus.COMPLETED)
     }
 
     @Test
-    fun `cancelTicket marks ticket as cancelled`() {
-        val room = roomRepository.save(Room(name = "Room E", isActive = true))
+    fun `given a called ticket still within its visit duration when completeExpiredVisits then it stays called`() {
+        val recentCalledAt = System.currentTimeMillis() - 1000L
         val ticket =
             ticketRepository.save(
                 Ticket(
-                    ticketName = "E-001",
-                    status = TicketStatus.WAITING,
-                    createdAt = Date(),
-                    roomId = room.id,
-                    type = TicketType.CHECKUP,
+                    ticketName = "U-001",
+                    status = TicketStatus.CALLED,
+                    createdAt = Date(recentCalledAt),
+                    calledAt = Date(recentCalledAt),
+                    type = TicketType.URGENT,
                 ),
             )
 
-        val cancelled = ticketService.cancelTicket(ticket.id!!)
-        val reloaded = ticketRepository.findById(ticket.id!!).orElseThrow()
+        ticketService.completeExpiredVisits()
 
-        assertThat(cancelled).isNotNull()
+        val reloaded = ticketRepository.findById(ticket.id!!).orElseThrow()
+        assertThat(reloaded.status).isEqualTo(TicketStatus.CALLED)
+    }
+
+    @Test
+    fun `given a waiting ticket when cancelTicket then it becomes cancelled`() {
+        val ticket = ticketRepository.save(waitingTicket("C-001", TicketType.CONSULTATION, System.currentTimeMillis()))
+
+        val cancelled = ticketService.cancelTicket(ticket.ticketName!!)
+
+        assertThat(cancelled.status).isEqualTo(TicketStatus.CANCELLED)
+        val reloaded = ticketRepository.findById(ticket.id!!).orElseThrow()
         assertThat(reloaded.status).isEqualTo(TicketStatus.CANCELLED)
     }
 
     @Test
-    fun `getAvailableTypes returns distinct waiting ticket types in queue order`() {
-        val room = roomRepository.save(Room(name = "Room F", isActive = true))
-        ticketRepository.save(
-            Ticket(
-                ticketName = "F-001",
-                status = TicketStatus.WAITING,
-                createdAt = Date(),
-                roomId = room.id,
-                type = TicketType.CONSULTATION,
-            ),
-        )
-        ticketRepository.save(
-            Ticket(
-                ticketName = "F-002",
-                status = TicketStatus.WAITING,
-                createdAt = Date(),
-                roomId = room.id,
-                type = TicketType.CONSULTATION,
-            ),
-        )
-        ticketRepository.save(
-            Ticket(
-                ticketName = "F-003",
-                status = TicketStatus.WAITING,
-                createdAt = Date(),
-                roomId = room.id,
-                type = TicketType.CHECKUP,
-            ),
-        )
+    fun `given a non-waiting ticket when cancelTicket then it throws IllegalStateException`() {
+        val ticket =
+            ticketRepository.save(
+                Ticket(
+                    ticketName = "C-001",
+                    status = TicketStatus.CALLED,
+                    createdAt = Date(),
+                    calledAt = Date(),
+                    type = TicketType.CONSULTATION,
+                ),
+            )
 
-        val types = ticketService.getAvailableTypes(room.id!!)
-
-        assertThat(types).containsExactly(TicketType.CONSULTATION, TicketType.CHECKUP)
+        assertThatThrownBy { ticketService.cancelTicket(ticket.ticketName!!) }
+            .isInstanceOf(IllegalStateException::class.java)
     }
+
+    private fun waitingTicket(
+        name: String,
+        type: TicketType,
+        createdAtMillis: Long,
+    ): Ticket =
+        Ticket(
+            ticketName = name,
+            status = TicketStatus.WAITING,
+            createdAt = Date(createdAtMillis),
+            roomId = null,
+            doctorId = null,
+            type = type,
+        )
+
+    private fun doctor(email: String): User =
+        User(
+            email = email,
+            password = "encoded",
+            role = "DOCTOR",
+            name = "Doc",
+            surname = "Tor",
+        )
 }

@@ -4,6 +4,7 @@ import com.uj.nextplease.security.JwtService
 import com.uj.nextplease.ticket.model.QueueStatusResponse
 import com.uj.nextplease.ticket.model.TicketCreateRequest
 import com.uj.nextplease.ticket.model.TicketCreateResponse
+import com.uj.nextplease.ticket.model.TicketDetails
 import com.uj.nextplease.ticket.service.TicketService
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -33,7 +34,6 @@ class TicketController(
                 TicketCreateResponse(
                     ticketNumber = ticketResponse.ticketNumber,
                     token = token,
-                    roomId = ticketResponse.roomId,
                 ),
             )
         } catch (_: Exception) {
@@ -44,10 +44,7 @@ class TicketController(
     fun getTicketStatus(
         @PathVariable ticketId: String,
     ): ResponseEntity<QueueStatusResponse> {
-        val authentication = SecurityContextHolder.getContext().authentication
-        val principal = authentication?.principal as? String
-
-        if (principal != ticketId) {
+        if (!isOwnTicket(ticketId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build()
         }
 
@@ -56,5 +53,27 @@ class TicketController(
                 ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
 
         return ResponseEntity.ok(status)
+    }
+
+    @PostMapping("/{ticketId}/cancel")
+    fun cancelTicket(
+        @PathVariable ticketId: String,
+    ): ResponseEntity<TicketDetails> {
+        if (!isOwnTicket(ticketId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build()
+        }
+
+        return try {
+            ResponseEntity.ok(ticketService.cancelTicket(ticketId))
+        } catch (_: NoSuchElementException) {
+            ResponseEntity.status(HttpStatus.NOT_FOUND).build()
+        } catch (_: IllegalStateException) {
+            ResponseEntity.status(HttpStatus.CONFLICT).build()
+        }
+    }
+
+    private fun isOwnTicket(ticketId: String): Boolean {
+        val principal = SecurityContextHolder.getContext().authentication?.principal as? String
+        return principal == ticketId
     }
 }

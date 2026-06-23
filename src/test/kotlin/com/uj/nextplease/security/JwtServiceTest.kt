@@ -157,7 +157,7 @@ class JwtServiceTest {
 
     @Test
     fun `staff tokens with different roles contain correct role claim`() {
-        val roles = listOf("ROLE_ADMIN", "ROLE_DOCTOR", "ROLE_PATIENT")
+        val roles = listOf("ROLE_DOCTOR", "ROLE_PATIENT")
 
         roles.forEach { role ->
             val userDetails =

@@ -132,25 +132,4 @@ class AuthControllerTest {
         val extractedTicketId = jwtService.getTicketIdFromToken(response.body?.token!!)
         assertThat(extractedTicketId).isEqualTo(ticketId)
     }
-
-    @Test
-    fun `login works with admin role`() {
-        val userDetails =
-            UserDetails(
-                id = 2L,
-                email = "admin@example.com",
-                password = "encodedPassword",
-                role = "ROLE_ADMIN",
-                name = "Admin",
-                surname = "User",
-            )
-        val loginRequest = LoginRequest(email = "admin@example.com", password = "password123")
-        whenever(userService.findByEmail("admin@example.com")).thenReturn(userDetails)
-        whenever(userService.isPasswordCorrect("password123", "encodedPassword")).thenReturn(true)
-
-        val response = authController.login(loginRequest)
-
-        assertThat(response.statusCode).isEqualTo(HttpStatus.OK)
-        assertThat(response.body?.role).isEqualTo("ROLE_ADMIN")
-    }
 }

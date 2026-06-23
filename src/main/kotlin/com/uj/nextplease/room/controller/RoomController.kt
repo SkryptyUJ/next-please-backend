@@ -1,24 +1,21 @@
 package com.uj.nextplease.room.controller
 
 import com.uj.nextplease.room.Room
-import com.uj.nextplease.room.model.DoctorAssignmentRequest
 import com.uj.nextplease.room.model.RoomResponse
-import com.uj.nextplease.room.model.RoomUpdateRequest
 import com.uj.nextplease.room.repository.RoomRepository
 import com.uj.nextplease.room.service.RoomService
-import com.uj.nextplease.ticket.model.TicketCreateRequest
 import com.uj.nextplease.ticket.model.TicketDetails
 import com.uj.nextplease.ticket.model.TicketType
+import com.uj.nextplease.ticket.model.VisitResponse
 import com.uj.nextplease.ticket.service.TicketService
 import com.uj.nextplease.user.repository.UserRepository
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.access.AccessDeniedException
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.PutMapping
-import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
@@ -31,36 +28,42 @@ class RoomController(
     private val roomRepository: RoomRepository,
     private val userRepository: UserRepository,
 ) {
-    @GetMapping("/rooms")
-    fun getAllRooms(): ResponseEntity<List<RoomResponse>> = ResponseEntity.ok(roomService.getAllRooms())
+    @GetMapping("/rooms/available")
+    fun getAvailableRooms(): ResponseEntity<List<RoomResponse>> = ResponseEntity.ok(roomService.getAvailableRooms())
 
-    @PutMapping("/rooms/{roomId}")
-    fun updateRoom(
+    @PostMapping("/rooms/{roomId}/claim")
+    fun claimRoom(
         @PathVariable roomId: Long,
-        @RequestBody request: RoomUpdateRequest,
     ): ResponseEntity<RoomResponse> {
+        val doctorId =
+            getAuthenticatedDoctorId()
+                ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
+
         return try {
-            val updated =
-                roomService.updateRoom(roomId, request)
+            val claimed =
+                roomService.claimRoom(roomId, doctorId)
                     ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
-            ResponseEntity.ok(updated)
-        } catch (_: Exception) {
-            ResponseEntity.status(HttpStatus.BAD_REQUEST).build()
+            ResponseEntity.ok(claimed)
+        } catch (_: IllegalStateException) {
+            ResponseEntity.status(HttpStatus.CONFLICT).build()
         }
     }
 
-    @PostMapping("/rooms/{roomId}/assign-doctor")
-    fun assignDoctorToRoom(
+    @PostMapping("/rooms/{roomId}/release")
+    fun releaseRoom(
         @PathVariable roomId: Long,
-        @RequestBody request: DoctorAssignmentRequest,
     ): ResponseEntity<RoomResponse> {
+        val doctorId =
+            getAuthenticatedDoctorId()
+                ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
+
         return try {
-            val updated =
-                roomService.assignDoctorToRoom(roomId, request)
+            val released =
+                roomService.releaseRoom(roomId, doctorId)
                     ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
-            ResponseEntity.ok(updated)
-        } catch (_: Exception) {
-            ResponseEntity.status(HttpStatus.BAD_REQUEST).build()
+            ResponseEntity.ok(released)
+        } catch (_: AccessDeniedException) {
+            ResponseEntity.status(HttpStatus.FORBIDDEN).build()
         }
     }
 
@@ -78,32 +81,25 @@ class RoomController(
     }
 
     @GetMapping("/doctors/available-types")
-    fun getAvailableTicketTypes(): ResponseEntity<List<TicketType>> {
-        val room =
-            getAuthenticatedDoctorRoom()
-                ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
-
-        val availableTypes = ticketService.getAvailableTypes(room.id!!)
-        return ResponseEntity.ok(availableTypes)
-    }
+    fun getAvailableTicketTypes(): ResponseEntity<List<TicketType>> = ResponseEntity.ok(ticketService.getAvailableTypes())
 
     @PostMapping("/doctors/next-patient")
     fun getNextPatient(
         @RequestParam type: TicketType,
-    ): ResponseEntity<TicketDetails> {
+    ): ResponseEntity<VisitResponse> {
         val room =
             getAuthenticatedDoctorRoom()
+                ?: return ResponseEntity.status(HttpStatus.CONFLICT).build()
+
+        val doctorId =
+            room.doctorId
+                ?: return ResponseEntity.status(HttpStatus.CONFLICT).build()
+
+        val visit =
+            ticketService.pairNextPatient(type, room.id!!, room.name, doctorId)
                 ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
 
-        val nextPatient =
-            ticketService.getNextPatientByType(room.id!!, type)
-                ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
-
-        val calledPatient =
-            ticketService.callPatient(nextPatient.id, room.id!!)
-                ?: return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build()
-
-        return ResponseEntity.ok(calledPatient)
+        return ResponseEntity.ok(visit)
     }
 
     @PostMapping("/doctors/complete-patient/{ticketId}")
@@ -117,33 +113,10 @@ class RoomController(
         return ResponseEntity.ok(completed)
     }
 
-    @PostMapping("/admin/tickets/create")
-    fun createTicketAsAdmin(
-        @RequestBody request: TicketCreateRequest,
-    ): ResponseEntity<TicketDetails> {
-        return try {
-            val ticketResponse = ticketService.createTicket(request)
-            val ticket =
-                ticketService.findByTicketName(ticketResponse.ticketNumber)
-                    ?: return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build()
-            ResponseEntity.ok(ticket)
-        } catch (_: Exception) {
-            ResponseEntity.status(HttpStatus.BAD_REQUEST).build()
-        }
-    }
-
-    @PostMapping("/admin/tickets/{ticketId}/cancel")
-    fun cancelTicket(
-        @PathVariable ticketId: Long,
-    ): ResponseEntity<TicketDetails> {
-        val cancelled =
-            ticketService.cancelTicket(ticketId)
-                ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
-        return ResponseEntity.ok(cancelled)
-    }
-
-    private fun getAuthenticatedDoctorRoom(): Room? {
+    private fun getAuthenticatedDoctorId(): Long? {
         val doctorEmail = SecurityContextHolder.getContext().authentication?.principal as? String ?: return null
-        return userRepository.findByEmail(doctorEmail)?.id?.let(roomRepository::findByDoctorId)
+        return userRepository.findByEmail(doctorEmail)?.id
     }
+
+    private fun getAuthenticatedDoctorRoom(): Room? = getAuthenticatedDoctorId()?.let(roomRepository::findByDoctorId)
 }

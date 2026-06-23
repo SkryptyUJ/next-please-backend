@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Lazy
+import org.springframework.http.HttpMethod
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
 import org.springframework.security.config.http.SessionCreationPolicy
@@ -37,22 +38,24 @@ class SecurityConfig(
                 sessionManagement.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             }.authorizeHttpRequests { auth ->
                 auth
-                    .requestMatchers("/api/auth/login")
+                    .requestMatchers(HttpMethod.POST, "/api/auth/login")
                     .permitAll()
-                    .requestMatchers("/api/tickets/create")
+                    .requestMatchers(HttpMethod.POST, "/api/tickets/create")
                     .permitAll()
                     .requestMatchers("/api/auth/token/**")
                     .permitAll()
-                    .requestMatchers("/api/tickets/status/**")
+                    .requestMatchers(HttpMethod.GET, "/api/tickets/status/**")
                     .hasRole(Constants.ROLE_PATIENT)
-                    .requestMatchers("/api/queue/subscribe/**")
+                    .requestMatchers(HttpMethod.POST, "/api/tickets/*/cancel")
                     .hasRole(Constants.ROLE_PATIENT)
+                    .requestMatchers(HttpMethod.GET, "/api/queue/subscribe")
+                    .hasRole(Constants.ROLE_PATIENT)
+                    .requestMatchers(HttpMethod.GET, "/api/rooms/available")
+                    .hasRole(Constants.ROLE_DOCTOR)
+                    .requestMatchers(HttpMethod.POST, "/api/rooms/*/claim", "/api/rooms/*/release")
+                    .hasRole(Constants.ROLE_DOCTOR)
                     .requestMatchers("/api/doctors/**")
                     .hasRole(Constants.ROLE_DOCTOR)
-                    .requestMatchers("/api/rooms/**")
-                    .hasRole(Constants.ROLE_ADMIN)
-                    .requestMatchers("/api/admin/**")
-                    .hasRole(Constants.ROLE_ADMIN)
                     .anyRequest()
                     .authenticated()
             }.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter::class.java)

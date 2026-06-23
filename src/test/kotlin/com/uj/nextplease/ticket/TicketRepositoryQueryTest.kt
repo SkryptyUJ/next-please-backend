@@ -1,8 +1,6 @@
 package com.uj.nextplease.ticket
 
 import com.uj.nextplease.config.PostgresTestContainerConfig
-import com.uj.nextplease.room.Room
-import com.uj.nextplease.room.repository.RoomRepository
 import com.uj.nextplease.ticket.model.TicketStatus
 import com.uj.nextplease.ticket.model.TicketType
 import com.uj.nextplease.ticket.repository.TicketRepository
@@ -12,148 +10,97 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.data.domain.PageRequest
+import org.springframework.transaction.annotation.Transactional
 import java.util.Date
 
 @SpringBootTest
 @Import(PostgresTestContainerConfig::class)
 class TicketRepositoryQueryTest(
     @Autowired private val ticketRepository: TicketRepository,
-    @Autowired private val roomRepository: RoomRepository,
 ) {
     @BeforeEach
     fun cleanDatabase() {
         ticketRepository.deleteAllInBatch()
-        roomRepository.deleteAllInBatch()
     }
 
     @Test
-    fun `findByStatus returns only matching tickets`() {
-        val room = roomRepository.save(Room(name = "Query Room A", isActive = true))
-        ticketRepository.save(
-            Ticket(
-                ticketName = "QA-001",
-                status = TicketStatus.WAITING,
-                createdAt = Date(),
-                roomId = room.id,
-                type = TicketType.CONSULTATION,
-            ),
-        )
-        ticketRepository.save(
-            Ticket(
-                ticketName = "QA-002",
-                status = TicketStatus.CALLED,
-                createdAt = Date(),
-                roomId = room.id,
-                type = TicketType.CHECKUP,
-            ),
-        )
+    fun `given mixed statuses when findByStatus then only matching tickets are returned`() {
+        ticketRepository.save(ticket("C-001", TicketStatus.WAITING, TicketType.CONSULTATION, Date()))
+        ticketRepository.save(ticket("K-001", TicketStatus.CALLED, TicketType.CHECKUP, Date()))
 
         val waiting = ticketRepository.findByStatus(TicketStatus.WAITING)
 
-        assertThat(waiting).extracting("ticketName").containsExactly("QA-001")
+        assertThat(waiting).extracting("ticketName").containsExactly("C-001")
     }
 
     @Test
-    fun `findAllWaitingOrderedByCreatedAt returns oldest waiting tickets first`() {
-        val room = roomRepository.save(Room(name = "Query Room B", isActive = true))
-        val older =
-            ticketRepository.save(
-                Ticket(
-                    ticketName = "QB-001",
-                    status = TicketStatus.WAITING,
-                    createdAt = Date(System.currentTimeMillis() - 2000),
-                    roomId = room.id,
-                    type = TicketType.CONSULTATION,
-                ),
-            )
-        val newer =
-            ticketRepository.save(
-                Ticket(
-                    ticketName = "QB-002",
-                    status = TicketStatus.WAITING,
-                    createdAt = Date(System.currentTimeMillis() - 1000),
-                    roomId = room.id,
-                    type = TicketType.CHECKUP,
-                ),
-            )
+    fun `given waiting tickets of a type when findWaitingByTypeOrderedByCreatedAt then oldest first and filtered by type`() {
+        val now = System.currentTimeMillis()
+        val first = ticketRepository.save(ticket("C-001", TicketStatus.WAITING, TicketType.CONSULTATION, Date(now - 2000)))
+        val second = ticketRepository.save(ticket("C-002", TicketStatus.WAITING, TicketType.CONSULTATION, Date(now - 1000)))
+        ticketRepository.save(ticket("K-001", TicketStatus.WAITING, TicketType.CHECKUP, Date()))
 
-        val waiting = ticketRepository.findAllWaitingOrderedByCreatedAt()
+        val waiting = ticketRepository.findWaitingByTypeOrderedByCreatedAt(TicketType.CONSULTATION)
 
-        assertThat(waiting).extracting("ticketName").containsExactly(older.ticketName, newer.ticketName)
+        assertThat(waiting).extracting("ticketName").containsExactly(first.ticketName, second.ticketName)
     }
 
     @Test
-    fun `findWaitingByRoomIdAndTypeOrderedByCreatedAt filters by room and type`() {
-        val roomOne = roomRepository.save(Room(name = "Query Room C", isActive = true))
-        val roomTwo = roomRepository.save(Room(name = "Query Room D", isActive = true))
+    fun `given waiting and called tickets of a type when countWaitingByType then only waiting are counted`() {
+        ticketRepository.save(ticket("C-001", TicketStatus.WAITING, TicketType.CONSULTATION, Date()))
+        ticketRepository.save(ticket("C-002", TicketStatus.WAITING, TicketType.CONSULTATION, Date()))
+        ticketRepository.save(ticket("C-003", TicketStatus.CALLED, TicketType.CONSULTATION, Date()))
+        ticketRepository.save(ticket("K-001", TicketStatus.WAITING, TicketType.CHECKUP, Date()))
 
-        val first =
-            ticketRepository.save(
-                Ticket(
-                    ticketName = "QC-001",
-                    status = TicketStatus.WAITING,
-                    createdAt = Date(System.currentTimeMillis() - 2000),
-                    roomId = roomOne.id,
-                    type = TicketType.CONSULTATION,
-                ),
-            )
-        ticketRepository.save(
-            Ticket(
-                ticketName = "QC-002",
-                status = TicketStatus.WAITING,
-                createdAt = Date(System.currentTimeMillis() - 1000),
-                roomId = roomOne.id,
-                type = TicketType.CONSULTATION,
-            ),
-        )
-        ticketRepository.save(
-            Ticket(
-                ticketName = "QC-003",
-                status = TicketStatus.WAITING,
-                createdAt = Date(),
-                roomId = roomTwo.id,
-                type = TicketType.CONSULTATION,
-            ),
-        )
-        ticketRepository.save(
-            Ticket(
-                ticketName = "QC-004",
-                status = TicketStatus.WAITING,
-                createdAt = Date(),
-                roomId = roomOne.id,
-                type = TicketType.CHECKUP,
-            ),
-        )
+        val count = ticketRepository.countWaitingByType(TicketType.CONSULTATION)
 
-        val waiting = ticketRepository.findWaitingByRoomIdAndTypeOrderedByCreatedAt(roomOne.id!!, TicketType.CONSULTATION)
-
-        assertThat(waiting).extracting("ticketName").containsExactly(first.ticketName, "QC-002")
+        assertThat(count).isEqualTo(2)
     }
 
     @Test
-    fun `countWaitingByRoomId counts only waiting tickets in room`() {
-        val room = roomRepository.save(Room(name = "Query Room E", isActive = true))
-        ticketRepository.save(
-            Ticket(
-                ticketName = "QE-001",
-                status = TicketStatus.WAITING,
-                createdAt = Date(),
-                roomId = room.id,
-                type = TicketType.CONSULTATION,
-            ),
-        )
-        ticketRepository.save(
-            Ticket(
-                ticketName = "QE-002",
-                status = TicketStatus.CALLED,
-                createdAt = Date(),
-                roomId = room.id,
-                type = TicketType.CHECKUP,
-            ),
-        )
+    @Transactional
+    fun `given waiting tickets of a type when findOldestWaitingByTypeForUpdate limited to one then it returns the oldest`() {
+        val now = System.currentTimeMillis()
+        val oldest = ticketRepository.save(ticket("C-001", TicketStatus.WAITING, TicketType.CONSULTATION, Date(now - 2000)))
+        ticketRepository.save(ticket("C-002", TicketStatus.WAITING, TicketType.CONSULTATION, Date(now - 1000)))
 
-        val count = ticketRepository.countWaitingByRoomId(room.id!!)
+        val result = ticketRepository.findOldestWaitingByTypeForUpdate(TicketType.CONSULTATION, PageRequest.of(0, 1))
 
-        assertThat(count).isEqualTo(1)
+        assertThat(result).extracting("ticketName").containsExactly(oldest.ticketName)
     }
+
+    @Test
+    fun `given called tickets when findCalledBefore then only those called before the cutoff are returned`() {
+        val cutoff = Date()
+        ticketRepository.save(
+            ticket("C-001", TicketStatus.CALLED, TicketType.CONSULTATION, Date()).apply {
+                calledAt = Date(cutoff.time - 5000)
+            },
+        )
+        ticketRepository.save(
+            ticket("C-002", TicketStatus.CALLED, TicketType.CONSULTATION, Date()).apply {
+                calledAt = Date(cutoff.time + 5000)
+            },
+        )
+
+        val expired = ticketRepository.findCalledBefore(cutoff)
+
+        assertThat(expired).extracting("ticketName").containsExactly("C-001")
+    }
+
+    private fun ticket(
+        name: String,
+        status: TicketStatus,
+        type: TicketType,
+        createdAt: Date,
+    ): Ticket =
+        Ticket(
+            ticketName = name,
+            status = status,
+            createdAt = createdAt,
+            roomId = null,
+            doctorId = null,
+            type = type,
+        )
 }

@@ -24,12 +24,13 @@ class RoomRepositoryPersistenceTest(
     }
 
     @Test
-    fun `save room and find by doctor id`() {
+    fun `given a seated doctor when findByDoctorId then the room is returned`() {
         val doctor =
             userRepository.save(
                 User(
                     email = "room-doctor@example.com",
-                    role = "ROLE_DOCTOR",
+                    password = "encoded",
+                    role = "DOCTOR",
                     name = "Anna",
                     surname = "Smith",
                 ),
@@ -52,23 +53,22 @@ class RoomRepositoryPersistenceTest(
     }
 
     @Test
-    fun `find by name returns room`() {
-        roomRepository.save(Room(name = "Room B", isActive = true))
+    fun `given free and occupied rooms when findByDoctorIdIsNull then only free rooms are returned`() {
+        val doctor =
+            userRepository.save(
+                User(
+                    email = "occupier@example.com",
+                    password = "encoded",
+                    role = "DOCTOR",
+                    name = "Piotr",
+                    surname = "Nowak",
+                ),
+            )
+        roomRepository.save(Room(name = "Free Room", isActive = false, doctorId = null))
+        roomRepository.save(Room(name = "Taken Room", isActive = true, doctorId = doctor.id))
 
-        val found = roomRepository.findByName("Room B")
+        val free = roomRepository.findByDoctorIdIsNull()
 
-        assertThat(found).isNotNull()
-        assertThat(found?.name).isEqualTo("Room B")
-    }
-
-    @Test
-    fun `findAllActive returns only active rooms ordered by name`() {
-        roomRepository.save(Room(name = "Room Z", isActive = false))
-        roomRepository.save(Room(name = "Room A", isActive = true))
-        roomRepository.save(Room(name = "Room C", isActive = true))
-
-        val activeRooms = roomRepository.findAllActive()
-
-        assertThat(activeRooms).extracting("name").containsExactly("Room A", "Room C")
+        assertThat(free).extracting("name").containsExactly("Free Room")
     }
 }

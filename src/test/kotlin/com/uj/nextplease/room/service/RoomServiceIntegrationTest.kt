@@ -1,9 +1,8 @@
 package com.uj.nextplease.room.service
 
 import com.uj.nextplease.config.PostgresTestContainerConfig
+import com.uj.nextplease.queue.service.QueueService
 import com.uj.nextplease.room.Room
-import com.uj.nextplease.room.model.DoctorAssignmentRequest
-import com.uj.nextplease.room.model.RoomUpdateRequest
 import com.uj.nextplease.room.repository.RoomRepository
 import com.uj.nextplease.ticket.Ticket
 import com.uj.nextplease.ticket.model.TicketStatus
@@ -18,6 +17,8 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.security.access.AccessDeniedException
+import org.springframework.test.context.bean.override.mockito.MockitoBean
 import java.util.Date
 
 @SpringBootTest
@@ -28,6 +29,9 @@ class RoomServiceIntegrationTest(
     @Autowired private val ticketRepository: TicketRepository,
     @Autowired private val userRepository: UserRepository,
 ) {
+    @MockitoBean
+    private lateinit var queueService: QueueService
+
     @BeforeEach
     fun cleanDatabase() {
         ticketRepository.deleteAllInBatch()
@@ -36,111 +40,101 @@ class RoomServiceIntegrationTest(
     }
 
     @Test
-    fun `createRoom persists a new room and getAllRooms returns it`() {
-        val created = roomService.createRoom("Room A")
+    fun `given free and occupied rooms when getAvailableRooms then only free rooms are returned`() {
+        val doctor = userRepository.save(doctor("available@clinic.com"))
+        roomRepository.save(Room(name = "Free Room", isActive = false, doctorId = null))
+        roomRepository.save(Room(name = "Taken Room", isActive = true, doctorId = doctor.id))
 
-        val rooms = roomService.getAllRooms()
+        val available = roomService.getAvailableRooms()
 
-        assertThat(created.id).isNotNull()
-        assertThat(created.name).isEqualTo("Room A")
-        assertThat(created.isActive).isTrue()
-        assertThat(rooms).extracting("name").containsExactly("Room A")
+        assertThat(available).extracting("name").containsExactly("Free Room")
     }
 
     @Test
-    fun `updateRoom changes name and active flag`() {
-        val room = roomRepository.save(Room(name = "Old Room", isActive = true))
+    fun `given a free room when claimRoom then the doctor is seated and the room is active`() {
+        val doctor = userRepository.save(doctor("claim@clinic.com"))
+        val room = roomRepository.save(Room(name = "Room A", isActive = false, doctorId = null))
 
-        val updated =
-            roomService.updateRoom(
-                room.id!!,
-                RoomUpdateRequest(name = "New Room", isActive = false),
-            )
+        val claimed = roomService.claimRoom(room.id!!, doctor.id!!)
 
-        assertThat(updated).isNotNull()
-        assertThat(updated?.name).isEqualTo("New Room")
-        assertThat(updated?.isActive).isFalse()
+        assertThat(claimed?.doctorId).isEqualTo(doctor.id)
+        assertThat(claimed?.isActive).isTrue()
+        val reloaded = roomRepository.findById(room.id!!).orElseThrow()
+        assertThat(reloaded.doctorId).isEqualTo(doctor.id)
+        assertThat(reloaded.isActive).isTrue()
     }
 
     @Test
-    fun `getActiveRooms returns only active rooms`() {
-        roomRepository.save(Room(name = "Active Room", isActive = true))
-        roomRepository.save(Room(name = "Inactive Room", isActive = false))
+    fun `given a room already taken when claimRoom then it throws IllegalStateException`() {
+        val seated = userRepository.save(doctor("seated@clinic.com"))
+        val newcomer = userRepository.save(doctor("newcomer@clinic.com"))
+        val room = roomRepository.save(Room(name = "Room A", isActive = true, doctorId = seated.id))
 
-        val activeRooms = roomService.getActiveRooms()
-
-        assertThat(activeRooms).hasSize(1)
-        assertThat(activeRooms.first().name).isEqualTo("Active Room")
+        assertThatThrownBy { roomService.claimRoom(room.id!!, newcomer.id!!) }
+            .isInstanceOf(IllegalStateException::class.java)
     }
 
     @Test
-    fun `assignDoctorToRoom sets doctor and returns doctor info`() {
-        val doctor =
-            userRepository.save(
-                User(
-                    email = "doctor@example.com",
-                    role = "ROLE_DOCTOR",
-                    name = "Anna",
-                    surname = "Kowalska",
+    fun `given a doctor already seated elsewhere when claimRoom then it throws IllegalStateException`() {
+        val doctor = userRepository.save(doctor("busy@clinic.com"))
+        roomRepository.save(Room(name = "Room A", isActive = true, doctorId = doctor.id))
+        val other = roomRepository.save(Room(name = "Room B", isActive = false, doctorId = null))
+
+        assertThatThrownBy { roomService.claimRoom(other.id!!, doctor.id!!) }
+            .isInstanceOf(IllegalStateException::class.java)
+    }
+
+    @Test
+    fun `given a claimed room when releaseRoom then it returns to the free pool`() {
+        val doctor = userRepository.save(doctor("release@clinic.com"))
+        val room = roomRepository.save(Room(name = "Room A", isActive = true, doctorId = doctor.id))
+
+        val released = roomService.releaseRoom(room.id!!, doctor.id!!)
+
+        assertThat(released?.doctorId).isNull()
+        assertThat(released?.isActive).isFalse()
+        assertThat(roomService.getAvailableRooms()).extracting("name").contains("Room A")
+    }
+
+    @Test
+    fun `given an in-progress visit when releaseRoom then the called ticket is completed first`() {
+        val doctor = userRepository.save(doctor("inprogress@clinic.com"))
+        val room = roomRepository.save(Room(name = "Room A", isActive = true, doctorId = doctor.id))
+        val ticket =
+            ticketRepository.save(
+                Ticket(
+                    ticketName = "C-001",
+                    status = TicketStatus.CALLED,
+                    createdAt = Date(),
+                    calledAt = Date(),
+                    roomId = room.id,
+                    doctorId = doctor.id,
+                    type = TicketType.CONSULTATION,
                 ),
             )
-        val room = roomRepository.save(Room(name = "Room B", isActive = true))
-        ticketRepository.save(
-            Ticket(
-                ticketName = "B-001",
-                status = TicketStatus.WAITING,
-                createdAt = Date(),
-                roomId = room.id,
-                type = TicketType.CONSULTATION,
-            ),
+
+        roomService.releaseRoom(room.id!!, doctor.id!!)
+
+        val reloaded = ticketRepository.findById(ticket.id!!).orElseThrow()
+        assertThat(reloaded.status).isEqualTo(TicketStatus.COMPLETED)
+    }
+
+    @Test
+    fun `given a room owned by another doctor when releaseRoom then it throws AccessDeniedException`() {
+        val owner = userRepository.save(doctor("owner@clinic.com"))
+        val intruder = userRepository.save(doctor("intruder@clinic.com"))
+        val room = roomRepository.save(Room(name = "Room A", isActive = true, doctorId = owner.id))
+
+        assertThatThrownBy { roomService.releaseRoom(room.id!!, intruder.id!!) }
+            .isInstanceOf(AccessDeniedException::class.java)
+    }
+
+    private fun doctor(email: String): User =
+        User(
+            email = email,
+            password = "encoded",
+            role = "DOCTOR",
+            name = "Doc",
+            surname = "Tor",
         )
-
-        val assigned = roomService.assignDoctorToRoom(room.id!!, DoctorAssignmentRequest(doctor.id))
-
-        assertThat(assigned).isNotNull()
-        assertThat(assigned?.doctorId).isEqualTo(doctor.id)
-        assertThat(assigned?.doctorName).isEqualTo("Anna")
-        assertThat(assigned?.doctorSurname).isEqualTo("Kowalska")
-        assertThat(assigned?.waitingQueueSize).isEqualTo(1)
-    }
-
-    @Test
-    fun `assignDoctorToRoom prevents assigning the same doctor to multiple rooms`() {
-        val doctor =
-            userRepository.save(
-                User(
-                    email = "duplicate-doctor@example.com",
-                    role = "ROLE_DOCTOR",
-                    name = "Piotr",
-                    surname = "Nowak",
-                ),
-            )
-        val firstRoom = roomRepository.save(Room(name = "Room C", isActive = true))
-        val secondRoom = roomRepository.save(Room(name = "Room D", isActive = true))
-
-        roomService.assignDoctorToRoom(firstRoom.id!!, DoctorAssignmentRequest(doctor.id))
-
-        assertThatThrownBy {
-            roomService.assignDoctorToRoom(secondRoom.id!!, DoctorAssignmentRequest(doctor.id))
-        }.isInstanceOf(IllegalArgumentException::class.java)
-            .hasMessageContaining("already assigned")
-    }
-
-    @Test
-    fun `assignDoctorToRoom can unassign a doctor`() {
-        val doctor =
-            userRepository.save(
-                User(
-                    email = "unassign-doctor@example.com",
-                    role = "ROLE_DOCTOR",
-                    name = "Marta",
-                    surname = "Zielinska",
-                ),
-            )
-        val room = roomRepository.save(Room(name = "Room E", isActive = true, doctorId = doctor.id))
-
-        val updated = roomService.assignDoctorToRoom(room.id!!, DoctorAssignmentRequest(null))
-
-        assertThat(updated?.doctorId).isNull()
-    }
 }

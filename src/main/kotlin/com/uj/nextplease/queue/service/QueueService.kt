@@ -9,26 +9,22 @@ import java.util.concurrent.ConcurrentHashMap
 
 @Service
 class QueueService {
-    private val emitters = ConcurrentHashMap<Long, MutableList<SseEmitter>>()
+    private val emitters = ConcurrentHashMap<String, SseEmitter>()
 
-    fun subscribe(roomId: Long): SseEmitter {
+    fun subscribe(ticketNumber: String): SseEmitter {
         val emitter = SseEmitter(Constants.SSE_TIMEOUT_MS)
 
-        val roomEmitters = emitters.computeIfAbsent(roomId) { mutableListOf() }
-        roomEmitters.add(emitter)
+        emitters[ticketNumber] = emitter
 
-        emitter.onCompletion { roomEmitters.remove(emitter) }
-        emitter.onTimeout { roomEmitters.remove(emitter) }
-        emitter.onError { _ -> roomEmitters.remove(emitter) }
+        emitter.onCompletion { emitters.remove(ticketNumber, emitter) }
+        emitter.onTimeout { emitters.remove(ticketNumber, emitter) }
+        emitter.onError { _ -> emitters.remove(ticketNumber, emitter) }
 
         return emitter
     }
 
-    fun broadcastQueueUpdate(
-        roomId: Long,
-        status: QueueStatusResponse,
-    ) {
-        broadcast(roomId) { emitter ->
+    fun broadcastQueueUpdate(status: QueueStatusResponse) {
+        send(status.ticketNumber) { emitter ->
             emitter.send(
                 SseEmitter
                     .event()
@@ -41,11 +37,11 @@ class QueueService {
     }
 
     fun broadcastPatientCalled(
-        roomId: Long,
         ticketNumber: String,
         roomNumber: String,
+        visitEndsAt: String,
     ) {
-        broadcast(roomId) { emitter ->
+        send(ticketNumber) { emitter ->
             emitter.send(
                 SseEmitter
                     .event()
@@ -55,26 +51,22 @@ class QueueService {
                         mapOf(
                             Constants.SSE_DATA_TICKET_NUMBER to ticketNumber,
                             Constants.SSE_DATA_ROOM_NUMBER to roomNumber,
+                            Constants.SSE_DATA_VISIT_ENDS_AT to visitEndsAt,
                         ),
                     ).build(),
             )
         }
     }
 
-    private fun broadcast(
-        roomId: Long,
+    private fun send(
+        ticketNumber: String,
         sendEvent: (SseEmitter) -> Unit,
     ) {
-        val roomEmitters = emitters[roomId] ?: return
-
-        val iterator = roomEmitters.iterator()
-        while (iterator.hasNext()) {
-            val emitter = iterator.next()
-            try {
-                sendEvent(emitter)
-            } catch (_: IOException) {
-                iterator.remove()
-            }
+        val emitter = emitters[ticketNumber] ?: return
+        try {
+            sendEvent(emitter)
+        } catch (_: IOException) {
+            emitters.remove(ticketNumber, emitter)
         }
     }
 }

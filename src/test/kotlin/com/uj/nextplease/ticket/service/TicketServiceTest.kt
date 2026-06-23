@@ -1,7 +1,6 @@
 package com.uj.nextplease.ticket.service
 
 import com.uj.nextplease.queue.service.QueueService
-import com.uj.nextplease.room.repository.RoomRepository
 import com.uj.nextplease.ticket.Ticket
 import com.uj.nextplease.ticket.model.TicketStatus
 import com.uj.nextplease.ticket.model.TicketType
@@ -15,16 +14,14 @@ import java.util.Date
 
 class TicketServiceTest {
     private lateinit var ticketRepository: TicketRepository
-    private lateinit var roomRepository: RoomRepository
     private lateinit var queueService: QueueService
     private lateinit var ticketService: TicketService
 
     @BeforeEach
     fun setUp() {
         ticketRepository = mock()
-        roomRepository = mock()
         queueService = mock()
-        ticketService = TicketService(ticketRepository, roomRepository, queueService)
+        ticketService = TicketService(ticketRepository, queueService)
     }
 
     @Test

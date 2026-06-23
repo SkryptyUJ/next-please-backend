@@ -7,5 +7,4 @@ data class RoomResponse(
     val doctorId: Long? = null,
     val doctorName: String? = null,
     val doctorSurname: String? = null,
-    val waitingQueueSize: Int = 0,
 )
