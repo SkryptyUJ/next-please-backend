@@ -70,25 +70,6 @@ class TicketRepositoryQueryTest(
         assertThat(result).extracting("ticketName").containsExactly(oldest.ticketName)
     }
 
-    @Test
-    fun `given called tickets when findCalledBefore then only those called before the cutoff are returned`() {
-        val cutoff = Date()
-        ticketRepository.save(
-            ticket("C-001", TicketStatus.CALLED, TicketType.CONSULTATION, Date()).apply {
-                calledAt = Date(cutoff.time - 5000)
-            },
-        )
-        ticketRepository.save(
-            ticket("C-002", TicketStatus.CALLED, TicketType.CONSULTATION, Date()).apply {
-                calledAt = Date(cutoff.time + 5000)
-            },
-        )
-
-        val expired = ticketRepository.findCalledBefore(cutoff)
-
-        assertThat(expired).extracting("ticketName").containsExactly("C-001")
-    }
-
     private fun ticket(
         name: String,
         status: TicketStatus,

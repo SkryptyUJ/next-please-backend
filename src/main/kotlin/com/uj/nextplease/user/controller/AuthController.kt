@@ -5,6 +5,8 @@ import com.uj.nextplease.ticket.service.TicketService
 import com.uj.nextplease.user.model.LoginRequest
 import com.uj.nextplease.user.model.LoginResponse
 import com.uj.nextplease.user.model.PatientTokenResponse
+import com.uj.nextplease.user.model.RegisterDoctorRequest
+import com.uj.nextplease.user.model.UserStatus
 import com.uj.nextplease.user.service.UserService
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -33,6 +35,10 @@ class AuthController(
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()
         }
 
+        if (userDetails.status != UserStatus.ACTIVE) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build()
+        }
+
         val token = jwtService.generateStaffToken(userDetails)
 
         return ResponseEntity.ok(
@@ -44,6 +50,16 @@ class AuthController(
                 role = userDetails.role,
             ),
         )
+    }
+
+    @PostMapping("/register-doctor")
+    fun registerDoctor(
+        @RequestBody request: RegisterDoctorRequest,
+    ): ResponseEntity<Map<String, String>> {
+        userService.registerDoctor(request)
+        return ResponseEntity
+            .status(HttpStatus.CREATED)
+            .body(mapOf("message" to "Request submitted. An admin must approve your account before you can log in."))
     }
 
     @PostMapping("/token/{ticketId}")

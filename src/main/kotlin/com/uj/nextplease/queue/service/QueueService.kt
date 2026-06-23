@@ -39,7 +39,6 @@ class QueueService {
     fun broadcastPatientCalled(
         ticketNumber: String,
         roomNumber: String,
-        visitEndsAt: String,
     ) {
         send(ticketNumber) { emitter ->
             emitter.send(
@@ -51,7 +50,6 @@ class QueueService {
                         mapOf(
                             Constants.SSE_DATA_TICKET_NUMBER to ticketNumber,
                             Constants.SSE_DATA_ROOM_NUMBER to roomNumber,
-                            Constants.SSE_DATA_VISIT_ENDS_AT to visitEndsAt,
                         ),
                     ).build(),
             )

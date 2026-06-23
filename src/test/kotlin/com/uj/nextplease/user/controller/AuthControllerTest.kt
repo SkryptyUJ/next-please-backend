@@ -5,7 +5,9 @@ import com.uj.nextplease.security.JwtService
 import com.uj.nextplease.security.SecurityProperties
 import com.uj.nextplease.ticket.service.TicketService
 import com.uj.nextplease.user.model.LoginRequest
+import com.uj.nextplease.user.model.RegisterDoctorRequest
 import com.uj.nextplease.user.model.UserDetails
+import com.uj.nextplease.user.model.UserStatus
 import com.uj.nextplease.user.service.UserService
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
@@ -100,6 +102,44 @@ class AuthControllerTest {
         assertThat(response.body?.name).isEqualTo("John")
         assertThat(response.body?.surname).isEqualTo("Doe")
         assertThat(response.body?.role).isEqualTo("ROLE_DOCTOR")
+    }
+
+    @Test
+    fun `login returns 403 when account is not active`() {
+        val userDetails =
+            UserDetails(
+                id = 1L,
+                email = "pending@example.com",
+                password = "encodedPassword",
+                role = "DOCTOR",
+                name = "Pending",
+                surname = "Doctor",
+                status = UserStatus.PENDING,
+            )
+        val loginRequest = LoginRequest(email = "pending@example.com", password = "password123")
+        whenever(userService.findByEmail("pending@example.com")).thenReturn(userDetails)
+        whenever(userService.isPasswordCorrect("password123", "encodedPassword")).thenReturn(true)
+
+        val response = authController.login(loginRequest)
+
+        assertThat(response.statusCode).isEqualTo(HttpStatus.FORBIDDEN)
+        assertThat(response.body).isNull()
+    }
+
+    @Test
+    fun `registerDoctor returns 201 with a neutral message`() {
+        val request =
+            RegisterDoctorRequest(
+                email = "new@example.com",
+                name = "New",
+                surname = "Doctor",
+                password = "password123",
+            )
+
+        val response = authController.registerDoctor(request)
+
+        assertThat(response.statusCode).isEqualTo(HttpStatus.CREATED)
+        assertThat(response.body?.get("message")).isNotBlank()
     }
 
     @Test

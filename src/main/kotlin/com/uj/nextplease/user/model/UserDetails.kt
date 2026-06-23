@@ -7,4 +7,5 @@ data class UserDetails(
     val role: String = "",
     val name: String = "",
     val surname: String = "",
+    val status: UserStatus = UserStatus.ACTIVE,
 )

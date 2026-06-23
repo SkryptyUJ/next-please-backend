@@ -8,13 +8,12 @@ import com.uj.nextplease.ticket.model.TicketCreateResponse
 import com.uj.nextplease.ticket.model.TicketDetails
 import com.uj.nextplease.ticket.model.TicketStatus
 import com.uj.nextplease.ticket.model.TicketType
-import com.uj.nextplease.ticket.model.VisitResponse
 import com.uj.nextplease.ticket.repository.TicketRepository
 import com.uj.nextplease.util.Constants
 import org.springframework.data.domain.PageRequest
+import org.springframework.security.access.AccessDeniedException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.time.Instant
 import java.util.Date
 import kotlin.random.Random
 
@@ -26,7 +25,6 @@ class TicketService(
     companion object {
         private const val TICKET_NUMBER_LENGTH = Constants.DEFAULT_TICKET_NUMBER_LENGTH
         private val TICKET_RANDOM_MAX = Constants.DEFAULT_TICKET_RANDOM_MAX
-        private val VISIT_DURATION_MS = Constants.VISIT_DURATION_SECONDS * 1000L
     }
 
     fun findByTicketName(ticketName: String): TicketDetails? = ticketRepository.findByTicketName(ticketName)?.let(::toTicketDetails)
@@ -85,32 +83,44 @@ class TicketService(
         roomId: Long,
         roomName: String,
         doctorId: Long,
-    ): VisitResponse? {
+    ): TicketDetails? {
         val ticket =
             ticketRepository
                 .findOldestWaitingByTypeForUpdate(type, PageRequest.of(0, 1))
                 .firstOrNull() ?: return null
 
-        val calledAt = Date()
         ticket.status = TicketStatus.CALLED
-        ticket.calledAt = calledAt
+        ticket.calledAt = Date()
         ticket.roomId = roomId
         ticket.doctorId = doctorId
         val updated = ticketRepository.save(ticket)
 
-        val visitEndsAt = Instant.ofEpochMilli(calledAt.time + VISIT_DURATION_MS).toString()
-
-        queueService.broadcastPatientCalled(updated.ticketName!!, roomName, visitEndsAt)
+        queueService.broadcastPatientCalled(updated.ticketName!!, roomName)
         broadcastQueueUpdateForType(type)
 
-        return VisitResponse(ticket = toTicketDetails(updated), visitEndsAt = visitEndsAt)
+        return toTicketDetails(updated)
     }
 
-    fun completeTicket(ticketId: Long): TicketDetails? {
+    /**
+     * Completes an in-progress visit ("Stop consultation"). Only the doctor whose [doctorId] matches
+     * the ticket's assigned doctor may complete it, and only while the ticket is [TicketStatus.CALLED].
+     */
+    @Transactional
+    fun completeTicket(
+        ticketId: Long,
+        doctorId: Long,
+    ): TicketDetails? {
         val ticket =
             ticketRepository
                 .findById(ticketId)
                 .orElse(null) ?: return null
+
+        if (ticket.doctorId != doctorId) {
+            throw AccessDeniedException("Ticket is not assigned to this doctor")
+        }
+        if (ticket.status != TicketStatus.CALLED) {
+            throw IllegalStateException("Only called tickets can be completed")
+        }
 
         ticket.status = TicketStatus.COMPLETED
         val updated = ticketRepository.save(ticket)
@@ -136,16 +146,6 @@ class TicketService(
         broadcastQueueUpdateForType(ticket.type)
 
         return toTicketDetails(updated)
-    }
-
-    @Transactional
-    fun completeExpiredVisits() {
-        val cutoff = Date(System.currentTimeMillis() - VISIT_DURATION_MS)
-        ticketRepository.findCalledBefore(cutoff).forEach { ticket ->
-            ticket.status = TicketStatus.COMPLETED
-            val updated = ticketRepository.save(ticket)
-            getQueueStatus(updated.ticketName!!)?.let(queueService::broadcastQueueUpdate)
-        }
     }
 
     private fun generateTicketNumber(type: TicketType): String {

@@ -51,7 +51,7 @@ class RoomService(
 
         ticketRepository
             .findByRoomIdAndStatus(roomId, TicketStatus.CALLED)
-            .forEach { ticketService.completeTicket(it.id!!) }
+            .forEach { ticketService.completeTicket(it.id!!, doctorId) }
 
         room.doctorId = null
         room.isActive = false

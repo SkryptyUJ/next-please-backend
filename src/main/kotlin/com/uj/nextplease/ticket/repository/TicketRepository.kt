@@ -8,7 +8,6 @@ import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
-import java.util.Date
 
 interface TicketRepository : JpaRepository<Ticket, Long> {
     fun findByTicketName(ticketName: String): Ticket?
@@ -35,7 +34,4 @@ interface TicketRepository : JpaRepository<Ticket, Long> {
         type: TicketType,
         pageable: Pageable,
     ): List<Ticket>
-
-    @Query("SELECT t FROM Ticket t WHERE t.status = 'CALLED' AND t.calledAt <= :cutoff")
-    fun findCalledBefore(cutoff: Date): List<Ticket>
 }

@@ -11,7 +11,6 @@ import com.uj.nextplease.ticket.model.TicketType
 import com.uj.nextplease.ticket.repository.TicketRepository
 import com.uj.nextplease.user.User
 import com.uj.nextplease.user.repository.UserRepository
-import com.uj.nextplease.util.Constants
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
@@ -19,6 +18,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.security.access.AccessDeniedException
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import java.util.Date
 import java.util.concurrent.Callable
@@ -111,8 +111,7 @@ class TicketServiceIntegrationTest(
         val visit = ticketService.pairNextPatient(TicketType.CONSULTATION, room.id!!, room.name, doctor.id!!)
 
         assertThat(visit).isNotNull()
-        assertThat(visit?.ticket?.ticketName).isEqualTo(oldest.ticketName)
-        assertThat(visit?.visitEndsAt).isNotBlank()
+        assertThat(visit?.ticketName).isEqualTo(oldest.ticketName)
 
         val reloaded = ticketRepository.findById(oldest.id!!).orElseThrow()
         assertThat(reloaded.status).isEqualTo(TicketStatus.CALLED)
@@ -162,45 +161,65 @@ class TicketServiceIntegrationTest(
     }
 
     @Test
-    fun `given a called ticket past its visit duration when completeExpiredVisits then it is completed`() {
-        val expiredCalledAt = System.currentTimeMillis() - (Constants.VISIT_DURATION_SECONDS + 1) * 1000L
+    fun `given a called ticket when completeTicket by the session doctor then it becomes completed`() {
         val ticket =
             ticketRepository.save(
                 Ticket(
                     ticketName = "U-001",
                     status = TicketStatus.CALLED,
-                    createdAt = Date(expiredCalledAt),
-                    calledAt = Date(expiredCalledAt),
-                    roomId = null,
-                    doctorId = null,
+                    createdAt = Date(),
+                    calledAt = Date(),
+                    roomId = 1L,
+                    doctorId = 7L,
                     type = TicketType.URGENT,
                 ),
             )
 
-        ticketService.completeExpiredVisits()
+        val completed = ticketService.completeTicket(ticket.id!!, 7L)
 
+        assertThat(completed?.status).isEqualTo(TicketStatus.COMPLETED)
         val reloaded = ticketRepository.findById(ticket.id!!).orElseThrow()
         assertThat(reloaded.status).isEqualTo(TicketStatus.COMPLETED)
     }
 
     @Test
-    fun `given a called ticket still within its visit duration when completeExpiredVisits then it stays called`() {
-        val recentCalledAt = System.currentTimeMillis() - 1000L
+    fun `given a called ticket when completeTicket by another doctor then it throws AccessDeniedException`() {
         val ticket =
             ticketRepository.save(
                 Ticket(
                     ticketName = "U-001",
                     status = TicketStatus.CALLED,
-                    createdAt = Date(recentCalledAt),
-                    calledAt = Date(recentCalledAt),
+                    createdAt = Date(),
+                    calledAt = Date(),
+                    roomId = 1L,
+                    doctorId = 7L,
                     type = TicketType.URGENT,
                 ),
             )
 
-        ticketService.completeExpiredVisits()
+        assertThatThrownBy { ticketService.completeTicket(ticket.id!!, 99L) }
+            .isInstanceOf(AccessDeniedException::class.java)
 
         val reloaded = ticketRepository.findById(ticket.id!!).orElseThrow()
         assertThat(reloaded.status).isEqualTo(TicketStatus.CALLED)
+    }
+
+    @Test
+    fun `given a non-called ticket when completeTicket then it throws IllegalStateException`() {
+        val ticket =
+            ticketRepository.save(
+                Ticket(
+                    ticketName = "U-001",
+                    status = TicketStatus.WAITING,
+                    createdAt = Date(),
+                    roomId = null,
+                    doctorId = 7L,
+                    type = TicketType.URGENT,
+                ),
+            )
+
+        assertThatThrownBy { ticketService.completeTicket(ticket.id!!, 7L) }
+            .isInstanceOf(IllegalStateException::class.java)
     }
 
     @Test

@@ -6,7 +6,6 @@ import com.uj.nextplease.room.repository.RoomRepository
 import com.uj.nextplease.room.service.RoomService
 import com.uj.nextplease.ticket.model.TicketDetails
 import com.uj.nextplease.ticket.model.TicketType
-import com.uj.nextplease.ticket.model.VisitResponse
 import com.uj.nextplease.ticket.service.TicketService
 import com.uj.nextplease.user.repository.UserRepository
 import org.springframework.http.HttpStatus
@@ -86,7 +85,7 @@ class RoomController(
     @PostMapping("/doctors/next-patient")
     fun getNextPatient(
         @RequestParam type: TicketType,
-    ): ResponseEntity<VisitResponse> {
+    ): ResponseEntity<TicketDetails> {
         val room =
             getAuthenticatedDoctorRoom()
                 ?: return ResponseEntity.status(HttpStatus.CONFLICT).build()
@@ -95,22 +94,31 @@ class RoomController(
             room.doctorId
                 ?: return ResponseEntity.status(HttpStatus.CONFLICT).build()
 
-        val visit =
+        val ticket =
             ticketService.pairNextPatient(type, room.id!!, room.name, doctorId)
                 ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
 
-        return ResponseEntity.ok(visit)
+        return ResponseEntity.ok(ticket)
     }
 
     @PostMapping("/doctors/complete-patient/{ticketId}")
     fun completePatient(
         @PathVariable ticketId: Long,
     ): ResponseEntity<TicketDetails> {
-        val completed =
-            ticketService.completeTicket(ticketId)
+        val doctorId =
+            getAuthenticatedDoctorId()
                 ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
 
-        return ResponseEntity.ok(completed)
+        return try {
+            val completed =
+                ticketService.completeTicket(ticketId, doctorId)
+                    ?: return ResponseEntity.status(HttpStatus.NOT_FOUND).build()
+            ResponseEntity.ok(completed)
+        } catch (_: AccessDeniedException) {
+            ResponseEntity.status(HttpStatus.FORBIDDEN).build()
+        } catch (_: IllegalStateException) {
+            ResponseEntity.status(HttpStatus.CONFLICT).build()
+        }
     }
 
     private fun getAuthenticatedDoctorId(): Long? {
