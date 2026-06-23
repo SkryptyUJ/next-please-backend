@@ -129,6 +129,56 @@ class RoomServiceIntegrationTest(
             .isInstanceOf(AccessDeniedException::class.java)
     }
 
+    @Test
+    fun `given a valid room id when getRoomById then it returns the room response`() {
+        val doctor = userRepository.save(doctor("getroom@clinic.com"))
+        val room = roomRepository.save(Room(name = "Room A", isActive = true, doctorId = doctor.id))
+
+        val response = roomService.getRoomById(room.id!!)
+
+        assertThat(response).isNotNull()
+        assertThat(response?.id).isEqualTo(room.id)
+        assertThat(response?.name).isEqualTo("Room A")
+        assertThat(response?.doctorId).isEqualTo(doctor.id)
+        assertThat(response?.doctorName).isEqualTo("Doc")
+    }
+
+    @Test
+    fun `given an unknown room id when getRoomById then it returns null`() {
+        val response = roomService.getRoomById(Long.MAX_VALUE)
+
+        assertThat(response).isNull()
+    }
+
+    @Test
+    fun `given a non-existent room when claimRoom then it returns null`() {
+        val doctor = userRepository.save(doctor("claimnull@clinic.com"))
+
+        val response = roomService.claimRoom(Long.MAX_VALUE, doctor.id!!)
+
+        assertThat(response).isNull()
+    }
+
+    @Test
+    fun `given a non-existent room when releaseRoom then it returns null`() {
+        val doctor = userRepository.save(doctor("releasenull@clinic.com"))
+
+        val response = roomService.releaseRoom(Long.MAX_VALUE, doctor.id!!)
+
+        assertThat(response).isNull()
+    }
+
+    @Test
+    fun `given a claimed room with no in-progress tickets when releaseRoom then the room is freed cleanly`() {
+        val doctor = userRepository.save(doctor("clean-release@clinic.com"))
+        val room = roomRepository.save(Room(name = "Room A", isActive = true, doctorId = doctor.id))
+
+        val released = roomService.releaseRoom(room.id!!, doctor.id!!)
+
+        assertThat(released?.doctorId).isNull()
+        assertThat(released?.isActive).isFalse()
+    }
+
     private fun doctor(email: String): User =
         User(
             email = email,

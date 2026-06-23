@@ -143,6 +143,17 @@ class AuthControllerTest {
     }
 
     @Test
+    fun `generatePatientToken returns 401 when the ticket does not exist`() {
+        val ticketId = "INVALID"
+        whenever(ticketService.findByTicketName(ticketId)).thenReturn(null)
+
+        val response = authController.generatePatientToken(ticketId)
+
+        assertThat(response.statusCode).isEqualTo(HttpStatus.UNAUTHORIZED)
+        assertThat(response.body).isNull()
+    }
+
+    @Test
     fun `generatePatientToken contains ticket ID in response`() {
         val ticketId = "T-123"
         whenever(ticketService.findByTicketName(ticketId)).thenReturn(mock())

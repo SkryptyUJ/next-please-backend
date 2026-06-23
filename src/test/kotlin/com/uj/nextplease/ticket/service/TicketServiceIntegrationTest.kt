@@ -228,6 +228,55 @@ class TicketServiceIntegrationTest(
     }
 
     @Test
+    fun `given a non-existent ticket id when completeTicket then it returns null`() {
+        val result = ticketService.completeTicket(Long.MAX_VALUE, 1L)
+
+        assertThat(result).isNull()
+    }
+
+    @Test
+    fun `given a called ticket when getQueueStatus then position is zero`() {
+        val doctor = userRepository.save(doctor("status-doctor@clinic.com"))
+        val room = roomRepository.save(Room(name = "Room A", isActive = true, doctorId = doctor.id))
+        ticketRepository.save(
+            Ticket(
+                ticketName = "C-001",
+                status = TicketStatus.CALLED,
+                createdAt = Date(),
+                calledAt = Date(),
+                roomId = room.id,
+                doctorId = doctor.id,
+                type = TicketType.CONSULTATION,
+            ),
+        )
+
+        val status = ticketService.getQueueStatus("C-001")
+
+        assertThat(status).isNotNull()
+        assertThat(status?.positionInQueue).isEqualTo(0)
+    }
+
+    @Test
+    fun `given no ticket with that name when getQueueStatus then it returns null`() {
+        val status = ticketService.getQueueStatus("DOES-NOT-EXIST")
+
+        assertThat(status).isNull()
+    }
+
+    @Test
+    fun `given no waiting tickets when getAvailableTypes then it returns an empty list`() {
+        val types = ticketService.getAvailableTypes()
+
+        assertThat(types).isEmpty()
+    }
+
+    @Test
+    fun `given a non-existent ticket when cancelTicket then it throws NoSuchElementException`() {
+        assertThatThrownBy { ticketService.cancelTicket("DOES-NOT-EXIST") }
+            .isInstanceOf(NoSuchElementException::class.java)
+    }
+
+    @Test
     fun `given a waiting ticket when cancelTicket then it becomes cancelled`() {
         val ticket = ticketRepository.save(waitingTicket("C-001", TicketType.CONSULTATION, System.currentTimeMillis()))
 
